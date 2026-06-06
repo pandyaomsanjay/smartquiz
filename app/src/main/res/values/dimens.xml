@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Text sizes -->
+    <dimen name="text_xxl">28sp</dimen>
+    <dimen name="text_xl">24sp</dimen>
+    <dimen name="text_lg">20sp</dimen>
+    <dimen name="text_md">18sp</dimen>
+    <dimen name="text_base">16sp</dimen>
+    <dimen name="text_sm">14sp</dimen>
+    <dimen name="text_xs">12sp</dimen>
+
+    <!-- Headings -->
+    <dimen name="heading_main">28sp</dimen>
+    <dimen name="heading_secondary">20sp</dimen>
+    <dimen name="heading_tertiary">18sp</dimen>
+
+    <!-- Button text -->
+    <dimen name="button_text">16sp</dimen>
+
+    <!-- Input text -->
+    <dimen name="input_text">16sp</dimen>
+    <dimen name="hint_text">14sp</dimen>
+</resources>

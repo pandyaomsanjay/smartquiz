@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#4F46E5</color>
+    <color name="primary_dark">#4338CA</color>
+    <color name="secondary">#06B6D4</color>
+    <color name="accent">#8B5CF6</color>
+    <color name="success">#22C55E</color>
+    <color name="error">#EF4444</color>
+    <color name="background">#F8FAFC</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="on_surface">#1E293B</color>
+    <color name="on_surface_variant">#64748B</color>
+    <color name="outline">#E2E8F0</color>
+
+    <!-- Required by Material theme -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+
+    <color name="surface_card">#FFFFFF</color>
+    <color name="text_primary">#0F172A</color>
+    <color name="text_secondary">#64748B</color>
+    <color name="border_light">#E2E8F0</color>
+    <color name="surface_variant">#F1F5F9</color>
+    <color name="success_light">#DCFCE7</color>
+    <color name="warning_light">#FEF3C7</color>
+    <color name="error_light">#FEE2E2</color>
+
+
+
+    <!-- Gradient Accents -->
+    <color name="gradient_start">#4F46E5</color>
+    <color name="gradient_end">#7C3AED</color>
+    <color name="white_alpha_20">#33FFFFFF</color>
+    <color name="white_alpha_60">#99FFFFFF</color>
+
+</resources>

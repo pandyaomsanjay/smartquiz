@@ -1,0 +1,62 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Base application theme -->
+    <style name="Theme.SmartQuiz" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- New professional colors -->
+        <item name="colorPrimary">#4F46E5</item>
+        <item name="colorPrimaryContainer">#E0E7FF</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorSecondary">#06B6D4</item>
+        <item name="colorSecondaryContainer">#CFFAFE</item>
+        <item name="colorOnSecondary">@android:color/black</item>
+        <item name="colorError">#EF4444</item>
+        <item name="android:windowBackground">#F8FAFC</item>
+        <item name="android:statusBarColor">#4338CA</item>
+
+        <!-- Smooth activity transitions -->
+        <item name="android:windowAnimationStyle">@style/Animation.ActivityTransition</item>
+
+        <!-- Typography (using system fonts – no custom fonts required) -->
+        <item name="textAppearanceHeadline1">@style/TextAppearance.SmartQuiz.Headline1</item>
+        <item name="textAppearanceHeadline2">@style/TextAppearance.SmartQuiz.Headline2</item>
+        <item name="textAppearanceHeadline3">@style/TextAppearance.SmartQuiz.Headline3</item>
+        <item name="textAppearanceBody1">@style/TextAppearance.SmartQuiz.Body1</item>
+        <item name="textAppearanceBody2">@style/TextAppearance.SmartQuiz.Body2</item>
+    </style>
+
+    <!-- Headline styles (system fonts) -->
+    <style name="TextAppearance.SmartQuiz.Headline1" parent="TextAppearance.Material3.HeadlineLarge">
+        <item name="android:textSize">32sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.SmartQuiz.Headline2" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="android:textSize">24sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.SmartQuiz.Headline3" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- Body text styles (system fonts) -->
+    <style name="TextAppearance.SmartQuiz.Body1" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textSize">16sp</item>
+    </style>
+    <style name="TextAppearance.SmartQuiz.Body2" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- Splash screen theme -->
+    <style name="Theme.SmartQuiz.Splash" parent="Theme.SmartQuiz">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:statusBarColor">@color/primary</item>
+    </style>
+
+    <!-- Activity transition animations -->
+    <style name="Animation.ActivityTransition" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/slide_in_right</item>
+        <item name="android:activityOpenExitAnimation">@anim/slide_out_left</item>
+        <item name="android:activityCloseEnterAnimation">@anim/slide_in_left</item>
+        <item name="android:activityCloseExitAnimation">@anim/slide_out_right</item>
+    </style>
+</resources>

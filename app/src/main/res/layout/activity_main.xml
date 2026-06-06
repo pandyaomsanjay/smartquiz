@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:fitsSystemWindows="true"
+    android:background="@drawable/splash_background">   <!-- Gradient -->
+
+    <ImageView
+        android:id="@+id/logoImageView"
+        android:layout_width="326dp"
+        android:layout_height="362dp"
+        android:src="@drawable/smartquiz" />
+
+    <TextView
+        android:id="@+id/appNameTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="56dp"
+        android:layout_marginTop="16dp"
+        android:letterSpacing="0.05"
+        android:text="Smart Quiz"
+        android:textColor="@android:color/white"
+        android:textSize="32sp"
+        android:textStyle="bold" />
+</LinearLayout>
