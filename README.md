@@ -145,8 +145,8 @@ app/
 ### Clone Repository
 
 ```bash
-git clone https://github.com/your-username/smart-quiz-hub.git
-cd smart-quiz-hub
+git clone https://github.com/pandyaomsanjay/smartquiz
+cd smartquiz
 ```
 
 ### Firebase Setup
@@ -237,11 +237,6 @@ Contributions, suggestions, and improvements are welcome.
 
 ---
 
-## 📄 License
-
-This project is licensed under the MIT License.
-
----
 
 ## ⭐ Support
 
