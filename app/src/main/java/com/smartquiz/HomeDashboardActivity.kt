@@ -32,7 +32,6 @@ class HomeDashboardActivity : AppCompatActivity() {
         db = FirebaseFirestore.getInstance()
         quizList = mutableListOf()
 
-
         loadUserData()
 
         adapter = QuizAdapter(quizList) { quiz ->
@@ -48,7 +47,7 @@ class HomeDashboardActivity : AppCompatActivity() {
         binding.progressBar.visibility = View.VISIBLE
         loadQuizzes()
 
-        // Chip listeners
+        // Chip listeners for filter
         binding.chipPublic.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) currentFilter = "public"
             loadQuizzes()
@@ -75,7 +74,7 @@ class HomeDashboardActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
 
-        // Navigation chips
+        // Quick action cards
         binding.chipCreateQuiz.setOnClickListener {
             startActivity(Intent(this, QuizCreationActivity::class.java))
             overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
@@ -128,11 +127,26 @@ class HomeDashboardActivity : AppCompatActivity() {
                 val streak = doc.getLong("streak")?.toInt() ?: 0
                 binding.tvStreak.text = "🔥 $streak day streak"
 
+                // Total quizzes joined
                 db.collection("results").whereEqualTo("userId", userId).get()
                     .addOnSuccessListener { results ->
                         if (!isFinishing) binding.tvTotalQuizzes.text = results.size().toString()
                     }
+
+                // Rank placeholder - you can implement real ranking later
                 binding.tvRank.text = "#1"
+
+                // 👇 ADMIN PANEL VISIBILITY
+                val role = doc.getString("role") ?: "user"
+                if (role.equals("admin", ignoreCase = true)) {
+                    binding.adminCardRow.visibility = View.VISIBLE
+                    binding.chipAdminPanel.setOnClickListener {
+                        startActivity(Intent(this, AdminPanelActivity::class.java))
+                        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+                    }
+                } else {
+                    binding.adminCardRow.visibility = View.GONE
+                }
             }
             .addOnFailureListener {
                 if (!isFinishing) binding.tvGreeting.text = "Hello, User!"
@@ -168,7 +182,7 @@ class HomeDashboardActivity : AppCompatActivity() {
     }
 
     private fun loadPrivateQuizzes() {
-        // Private quizzes are not publicly listed; show a message or empty
+        // Private quizzes are not listed publicly
         quizList.clear()
         updateAdapter()
         Toast.makeText(this, "Private quizzes can only be joined via code", Toast.LENGTH_SHORT).show()
@@ -199,7 +213,7 @@ class HomeDashboardActivity : AppCompatActivity() {
             .collection("joinedQuizzes")
             .get()
             .addOnSuccessListener { joinedDocs ->
-                val quizIds = joinedDocs.map { it.getString("quizId") ?: "" }
+                val quizIds = joinedDocs.mapNotNull { it.getString("quizId") }
                 if (quizIds.isEmpty()) {
                     quizList.clear()
                     updateAdapter()
@@ -230,9 +244,9 @@ class HomeDashboardActivity : AppCompatActivity() {
             return
         }
         val filtered = quizList.filter {
-            it.title.contains(query, true) ||
-                    it.category.contains(query, true) ||
-                    it.description.contains(query, true)
+            it.title.contains(query, ignoreCase = true) ||
+                    it.category.contains(query, ignoreCase = true) ||
+                    it.description.contains(query, ignoreCase = true)
         }
         adapter.updateList(filtered)
     }
