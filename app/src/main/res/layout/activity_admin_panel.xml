@@ -91,14 +91,7 @@
             android:paddingHorizontal="16dp"
             android:layout_marginBottom="16dp">
 
-            <Button
-                android:id="@+id/btnCheatLogs"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Cheating Logs"
-                android:layout_marginEnd="8dp"
-                android:backgroundTint="@color/primary_dark" />
+            <!-- Cheat Logs button removed -->
 
             <Button
                 android:id="@+id/btnAnalytics"

@@ -119,10 +119,6 @@ class AdminPanelActivity : AppCompatActivity() {
                     startActivity(Intent(this, AdminQuizzesActivity::class.java))
                 }
 
-                binding.btnCheatLogs.setOnClickListener {
-                    startActivity(Intent(this, AdminCheatLogsActivity::class.java))
-                }
-
                 binding.btnAnalytics.setOnClickListener {
                     startActivity(Intent(this, AdminAnalyticsActivity::class.java))
                 }
