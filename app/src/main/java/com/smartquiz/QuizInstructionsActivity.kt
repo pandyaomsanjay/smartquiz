@@ -10,6 +10,7 @@ class QuizInstructionsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityQuizInstructionsBinding
     private var quizId = ""
     private var quizTitle = ""
+    private var creatorId = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -18,6 +19,7 @@ class QuizInstructionsActivity : AppCompatActivity() {
 
         quizId = intent.getStringExtra("quizId") ?: ""
         quizTitle = intent.getStringExtra("quizTitle") ?: "Quiz"
+        creatorId = intent.getStringExtra("creatorId") ?: ""
 
         binding.tvQuizTitle.text = quizTitle
         binding.tvInstructions.text = """
@@ -33,6 +35,7 @@ class QuizInstructionsActivity : AppCompatActivity() {
             val intent = Intent(this, QuizAttemptActivity::class.java)
             intent.putExtra("quizId", quizId)
             intent.putExtra("quizTitle", quizTitle)
+            intent.putExtra("creatorId", creatorId)
             startActivity(intent)
             finish()
         }

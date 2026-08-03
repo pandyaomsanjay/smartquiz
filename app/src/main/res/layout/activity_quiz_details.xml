@@ -107,6 +107,18 @@
                     android:visibility="gone"
                     android:layout_marginTop="16dp" />
 
+                <!-- NEW: Download Answer Sheet Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnDownloadAnswers"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Download Answer Sheet"
+                    android:visibility="gone"
+                    android:layout_marginTop="8dp"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    app:icon="@drawable/ic_download"
+                    app:iconGravity="textStart" />
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
     </ScrollView>

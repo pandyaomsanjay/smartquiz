@@ -1,58 +1,71 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_margin="8dp"
     app:cardCornerRadius="12dp"
-    app:cardElevation="2dp">
+    app:cardElevation="2dp"
+    app:strokeColor="@color/border_light"
+    app:strokeWidth="1dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="16dp">
 
+        <!-- User Info -->
         <TextView
             android:id="@+id/tvUserId"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="User ID: ..."
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:text="User: Unknown"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
 
+        <!-- Quiz -->
         <TextView
             android:id="@+id/tvQuizId"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Quiz ID: ..."
+            android:text="Quiz: Unknown"
             android:textSize="14sp"
+            android:textColor="@color/text_secondary"
             android:layout_marginTop="4dp" />
 
+        <!-- Event / Reason (with optional warning icon) -->
         <TextView
             android:id="@+id/tvReason"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Reason: ..."
+            android:text="Event: BACK_BUTTON"
             android:textSize="14sp"
-            android:textColor="@android:color/holo_red_dark"
+            android:textColor="@color/error"
             android:layout_marginTop="4dp" />
 
+        <!-- Device -->
         <TextView
             android:id="@+id/tvDevice"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Device: ..."
+            android:text="Device: Pixel 8 (Android 14)"
             android:textSize="12sp"
+            android:textColor="@color/text_secondary"
             android:layout_marginTop="4dp" />
 
+        <!-- Timestamp -->
         <TextView
             android:id="@+id/tvTimestamp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Time: ..."
+            android:text="2026-08-01 22:35:14"
             android:textSize="12sp"
-            android:textColor="@android:color/darker_gray"
-            android:layout_marginTop="4dp" />
+            android:textColor="@color/text_secondary"
+            android:layout_marginTop="4dp"
+            android:fontFamily="monospace" />
+
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

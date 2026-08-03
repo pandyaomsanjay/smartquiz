@@ -10,12 +10,12 @@
         android:orientation="vertical"
         android:padding="16dp">
 
+        <!-- Question Text -->
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Question Text">
-
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etQuestionText"
                 android:layout_width="match_parent"
@@ -23,78 +23,145 @@
                 android:minLines="2" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Option 1"
-            android:layout_marginTop="8dp">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etOption1"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Option 2"
-            android:layout_marginTop="8dp">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etOption2"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Option 3"
-            android:layout_marginTop="8dp">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etOption3"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Option 4"
-            android:layout_marginTop="8dp">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etOption4"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-        </com.google.android.material.textfield.TextInputLayout>
-
+        <!-- Question Type Spinner -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Correct Answer"
+            android:text="Question Type"
             android:layout_marginTop="12dp" />
-
         <Spinner
-            android:id="@+id/spinnerCorrect"
+            android:id="@+id/spinnerQuestionType"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:entries="@array/options_array"
-            android:layout_marginTop="4dp" />
+            android:entries="@array/question_types"
+            android:layout_marginBottom="8dp" />
 
+        <!-- Options Container (for Radio / Checkbox) -->
+        <LinearLayout
+            android:id="@+id/llOptionsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="visible">
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Option 1">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etOption1"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Option 2">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etOption2"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Option 3">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etOption3"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Option 4">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etOption4"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Correct Answer Selection for Radio (Spinner) -->
+            <TextView
+                android:id="@+id/tvCorrectRadio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Correct Answer"
+                android:layout_marginTop="12dp" />
+            <Spinner
+                android:id="@+id/spinnerCorrect"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:entries="@array/options_array" />
+
+            <!-- Correct Answer Selection for Checkbox (CheckBoxes) -->
+            <LinearLayout
+                android:id="@+id/llCorrectCheckbox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Select correct options"
+                    android:layout_marginTop="8dp" />
+                <CheckBox
+                    android:id="@+id/cbCorrect1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Option 1" />
+                <CheckBox
+                    android:id="@+id/cbCorrect2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Option 2" />
+                <CheckBox
+                    android:id="@+id/cbCorrect3"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Option 3" />
+                <CheckBox
+                    android:id="@+id/cbCorrect4"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Option 4" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Descriptive Answer Container -->
+        <LinearLayout
+            android:id="@+id/llDescriptiveContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Correct Answer (exact match)">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etCorrectAnswerText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <!-- Media URLs -->
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Image URL (optional)"
             android:layout_marginTop="8dp">
-
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etImageUrl"
                 android:layout_width="match_parent"
@@ -107,7 +174,6 @@
             android:layout_height="wrap_content"
             android:hint="Audio URL (optional)"
             android:layout_marginTop="8dp">
-
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etAudioUrl"
                 android:layout_width="match_parent"
@@ -120,20 +186,19 @@
             android:layout_height="wrap_content"
             android:hint="Video URL (optional)"
             android:layout_marginTop="8dp">
-
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etVideoUrl"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- Points -->
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Points for this question"
             android:layout_marginTop="12dp">
-
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etPoints"
                 android:layout_width="match_parent"

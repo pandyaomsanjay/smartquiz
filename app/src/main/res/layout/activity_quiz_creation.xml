@@ -12,7 +12,14 @@
         android:orientation="vertical"
         android:padding="24dp">
 
-
+        <!-- Toolbar -->
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/primary"
+            app:title="Create Quiz"
+            app:titleTextColor="@color/white" />
 
         <!-- Progress Indicator -->
         <com.google.android.material.progressindicator.LinearProgressIndicator
@@ -23,14 +30,6 @@
             android:progress="33"
             app:trackCornerRadius="2dp"
             android:layout_marginBottom="24dp" />
-
-        <androidx.appcompat.widget.Toolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            android:background="@color/primary"
-            app:title="Create Quiz"
-            app:titleTextColor="@color/white" />
 
         <!-- Quiz Details Card -->
         <com.google.android.material.card.MaterialCardView
@@ -46,6 +45,7 @@
                 android:orientation="vertical"
                 android:padding="20dp">
 
+                <!-- Quiz Title -->
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
@@ -58,11 +58,13 @@
                         android:layout_height="wrap_content" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- Description -->
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Description">
+                    android:hint="Description"
+                    android:layout_marginBottom="16dp">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etQuizDescription"
                         android:layout_width="match_parent"
@@ -74,7 +76,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="8dp"
                     android:layout_marginBottom="8dp"
                     android:text="Quiz Visibility"
                     android:textAppearance="?attr/textAppearanceTitleSmall" />
@@ -113,32 +115,103 @@
                     </RadioGroup>
                 </com.google.android.material.card.MaterialCardView>
 
-                <com.google.android.material.textfield.TextInputLayout
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                <!-- Timer Type Selection -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Timer Type"
+                    android:textAppearance="?attr/textAppearanceTitleSmall"
+                    android:layout_marginTop="24dp"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Timer (seconds)"
-                    android:layout_marginTop="16dp">
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@color/border_light"
+                    app:strokeWidth="1dp"
+                    android:layout_marginBottom="16dp">
 
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/etTimer"
+                    <RadioGroup
+                        android:id="@+id/radioGroupTimerType"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="number" />
+                        android:orientation="vertical"
+                        android:padding="12dp">
+
+                        <RadioButton
+                            android:id="@+id/radioNoTimer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="No Timer"
+                            android:checked="true" />
+
+                        <RadioButton
+                            android:id="@+id/radioWholeQuizTimer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Whole Quiz Timer" />
+
+                        <RadioButton
+                            android:id="@+id/radioPerQuestionTimer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Question-by-Question Timer" />
+                    </RadioGroup>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Whole Quiz Timer Input -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/inputLayoutTotalTime"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Total Time (HH:MM:SS)"
+                    android:visibility="gone"
+                    android:layout_marginBottom="16dp">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etTotalTime"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text"
+                        android:text="00:30:00" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- Per-Question Timer Input -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/inputLayoutPerQuestionTime"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Time Per Question (HH:MM:SS)"
+                    android:visibility="gone"
+                    android:layout_marginBottom="16dp">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etPerQuestionTime"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text"
+                        android:text="00:00:30" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- Deadline -->
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Deadline (yyyy-MM-dd HH:mm)">
+                    android:hint="Deadline (yyyy-MM-dd HH:mm)"
+                    android:layout_marginTop="16dp">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etDeadline"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="datetime" />
+                        android:inputType="datetime"
+                        android:focusable="false"
+                        android:cursorVisible="false" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- Negative Marking Switch -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -158,11 +231,13 @@
                         android:checked="false" />
                 </LinearLayout>
 
+                <!-- Negative Marking Value -->
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Negative Value (e.g. 0.25)">
+                    android:hint="Negative Value (e.g. 0.25)"
+                    android:layout_marginTop="8dp">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etNegativeValue"
                         android:layout_width="match_parent"
@@ -170,6 +245,7 @@
                         android:inputType="numberDecimal"
                         android:text="0.25" />
                 </com.google.android.material.textfield.TextInputLayout>
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -181,6 +257,7 @@
             android:textAppearance="?attr/textAppearanceHeadline3"
             android:layout_marginBottom="16dp" />
 
+        <!-- Add Question Button -->
         <Button
             android:id="@+id/btnAddQuestion"
             android:layout_width="match_parent"
@@ -189,6 +266,7 @@
             android:backgroundTint="@color/accent"
             android:textAppearance="?attr/textAppearanceButton" />
 
+        <!-- Question Count -->
         <TextView
             android:id="@+id/tvQuestionsCount"
             android:layout_width="wrap_content"
@@ -197,7 +275,16 @@
             android:textAppearance="?attr/textAppearanceBody2"
             android:layout_marginTop="8dp" />
 
-        <!-- Save Button (Sticky at bottom) -->
+        <!-- RecyclerView for Question Preview -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvQuestionPreview"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:nestedScrollingEnabled="false"
+            android:layout_marginTop="16dp"
+            android:visibility="gone" />
+
+        <!-- Save Quiz Button -->
         <Button
             android:id="@+id/btnSaveQuiz"
             android:layout_width="match_parent"
@@ -206,5 +293,6 @@
             android:text="Save Quiz"
             android:backgroundTint="@color/primary"
             android:textAppearance="?attr/textAppearanceButton" />
+
     </LinearLayout>
 </ScrollView>

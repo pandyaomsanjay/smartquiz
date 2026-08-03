@@ -1,9 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Existing: options for correct answer spinner -->
     <string-array name="options_array">
         <item>Option 1</item>
         <item>Option 2</item>
         <item>Option 3</item>
         <item>Option 4</item>
+    </string-array>
+
+    <!-- NEW: question types for the type spinner -->
+    <string-array name="question_types">
+        <item>Radio (Single Choice)</item>
+        <item>Checkbox (Multiple Choice)</item>
+        <item>Descriptive (Fill in the blanks)</item>
     </string-array>
 </resources>

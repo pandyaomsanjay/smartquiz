@@ -199,6 +199,7 @@ class JoinQuizActivity : AppCompatActivity() {
                     quizId = quiz.quizId!!,
                     quizTitle = quiz.title,
                     quizCode = quiz.quizCode,
+                    creatorId = quiz.creatorId,
                     creatorName = creatorName,
                     joinTime = joinTime,
                     submitTime = null,
@@ -214,6 +215,7 @@ class JoinQuizActivity : AppCompatActivity() {
                         val intent = Intent(this, QuizInstructionsActivity::class.java)
                         intent.putExtra("quizId", quiz.quizId)
                         intent.putExtra("quizTitle", quiz.title)
+                        intent.putExtra("creatorId", quiz.creatorId)
                         startActivity(intent)
                         finish()
                     }
@@ -227,6 +229,7 @@ class JoinQuizActivity : AppCompatActivity() {
                     quizId = quiz.quizId!!,
                     quizTitle = quiz.title,
                     quizCode = quiz.quizCode,
+                    creatorId = quiz.creatorId,
                     creatorName = "Unknown",
                     joinTime = joinTime,
                     submitTime = null,
@@ -242,6 +245,7 @@ class JoinQuizActivity : AppCompatActivity() {
                         val intent = Intent(this, QuizInstructionsActivity::class.java)
                         intent.putExtra("quizId", quiz.quizId)
                         intent.putExtra("quizTitle", quiz.title)
+                        intent.putExtra("creatorId", quiz.creatorId)
                         startActivity(intent)
                         finish()
                     }
@@ -273,7 +277,20 @@ class JoinQuizActivity : AppCompatActivity() {
 
     private fun determineFinalStatus(joined: JoinedQuiz): String {
         if (joined.status == "Completed") return "Completed"
-        return if (isQuizExpired(joined.quizId)) "Expired" else "In Progress"
+        val userId = auth.currentUser?.uid ?: return joined.status
+        // Check deadline from Firestore
+        db.collection("quizzes").document(joined.quizId).get()
+            .addOnSuccessListener { doc ->
+                val deadline = doc.getLong("deadline") ?: 0L
+                if (deadline > 0 && System.currentTimeMillis() > deadline) {
+                    // Update local status and DB
+                    joined.status = "Expired"
+                    db.collection("users").document(userId)
+                        .collection("joinedQuizzes").document(joined.quizId)
+                        .update("status", "Expired")
+                }
+            }
+        return joined.status
     }
 
     private fun isQuizExpired(quizId: String): Boolean {

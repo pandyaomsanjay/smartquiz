@@ -1,5 +1,6 @@
 package com.smartquiz
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -23,16 +24,25 @@ class AdminQuizzesActivity : AppCompatActivity() {
 
         db = FirebaseFirestore.getInstance()
 
-        adapter = QuizAdapter(quizList) { quiz ->
-            AlertDialog.Builder(this)
-                .setTitle("Delete Quiz")
-                .setMessage("Are you sure you want to delete \"${quiz.title}\"? All questions and results will be lost.")
-                .setPositiveButton("Delete") { _, _ ->
-                    deleteQuiz(quiz)
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
+        adapter = QuizAdapter(
+            quizList = quizList,
+            onQuizClick = { quiz ->
+                val intent = Intent(this, QuizStatsActivity::class.java)
+                intent.putExtra("quizId", quiz.quizId)
+                intent.putExtra("quizTitle", quiz.title)
+                startActivity(intent)
+            },
+            onDeleteClick = { quiz ->
+                AlertDialog.Builder(this)
+                    .setTitle("Delete Quiz")
+                    .setMessage("Are you sure you want to delete \"${quiz.title}\"? All questions and results will be lost.")
+                    .setPositiveButton("Delete") { _, _ ->
+                        deleteQuiz(quiz)
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        )
         binding.rvQuizzes.layoutManager = LinearLayoutManager(this)
         binding.rvQuizzes.adapter = adapter
 

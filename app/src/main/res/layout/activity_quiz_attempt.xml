@@ -14,7 +14,7 @@
         android:background="@color/primary"
         app:titleTextColor="@android:color/white" />
 
-    <!-- Header: progress bar + timer -->
+    <!-- Header: progress bar + marks + timer -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -43,24 +43,53 @@
                 app:trackCornerRadius="4dp" />
         </LinearLayout>
 
+        <!-- Marks indicator -->
+        <TextView
+            android:id="@+id/tvMarks"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0 marks"
+            android:textSize="14sp"
+            android:textColor="@color/on_surface_variant"
+            android:layout_marginStart="16dp"
+            android:layout_gravity="center_vertical" />
+
+        <!-- Timer with label -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@drawable/ic_timer" />
+            android:orientation="vertical"
+            android:gravity="center_vertical"
+            android:layout_marginStart="16dp">
             <TextView
-                android:id="@+id/tvTimer"
+                android:id="@+id/tvTimerLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="00:00"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:textColor="@color/error"
-                android:layout_marginStart="4dp" />
+                android:text="Time Remaining"
+                android:textSize="10sp"
+                android:textColor="@color/on_surface_variant"
+                android:gravity="center"
+                android:visibility="gone" />
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:src="@drawable/ic_timer" />
+                <TextView
+                    android:id="@+id/tvTimer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="00:00:00"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/error"
+                    android:layout_marginStart="4dp"
+                    android:visibility="gone" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 
@@ -128,8 +157,8 @@
                             android:text="Play Audio" />
                     </LinearLayout>
 
-                    <!-- Options as selectable cards -->
-                    <RadioGroup
+                    <!-- Options container (will be populated dynamically) -->
+                    <LinearLayout
                         android:id="@+id/radioGroupOptions"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -150,7 +179,7 @@
         <Button
             android:id="@+id/btnPrevious"
             style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="1dp"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
             android:layout_weight="1"
@@ -167,11 +196,10 @@
 
         <Button
             android:id="@+id/btnNextOrSubmit"
-            android:layout_width="9dp"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:backgroundTint="@color/primary"
             android:text="Next" />
-
     </LinearLayout>
 </LinearLayout>

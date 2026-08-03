@@ -19,12 +19,25 @@ class CheatLogAdapter(private val logs: List<CheatLog>) :
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val log = logs[position]
-        holder.binding.tvUserId.text = "User: ${log.userId}"
-        holder.binding.tvQuizId.text = "Quiz: ${log.quizId}"
-        holder.binding.tvReason.text = "Reason: ${log.reason}"
-        holder.binding.tvDevice.text = "Device: ${log.deviceInfo}"
-        val date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(log.timestamp))
-        holder.binding.tvTimestamp.text = date
+
+        // User info
+        holder.binding.tvUserId.text = "User: ${log.userName} (${log.email})"
+
+        // Quiz info
+        holder.binding.tvQuizId.text = "Quiz: ${log.quizTitle}"
+
+        // Event type with suspicious flag and violation count
+        val eventDisplay = log.eventType.replace("_", " ").capitalize()
+        val suspiciousText = if (log.suspicious) " ⚠️ SUSPICIOUS" else ""
+        val violationText = if (log.violationCount > 0) " (${log.violationCount} violations)" else ""
+        holder.binding.tvReason.text = "Event: $eventDisplay$suspiciousText$violationText"
+
+        // Device info
+        holder.binding.tvDevice.text = "Device: ${log.deviceModel} (${log.androidVersion})"
+
+        // Timestamp
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        holder.binding.tvTimestamp.text = dateFormat.format(Date(log.timestamp))
     }
 
     override fun getItemCount() = logs.size

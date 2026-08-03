@@ -1,9 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.google.gms.google.services)
-    id("org.jetbrains.kotlin.android") version "1.9.22"
+    alias(libs.plugins.kotlin.android)
 }
-
 android {
     namespace = "com.smartquiz"
     compileSdk = 34          // Stable Android 14 (not preview)
@@ -61,18 +60,20 @@ dependencies {
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)
     implementation(libs.firebase.firestore)
+    implementation(libs.androidx.lifecycle.process)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
 
     // Kotlin
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.22")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.1.21")
     implementation("androidx.gridlayout:gridlayout:1.0.0")
 
     // Firebase & Storage
-    implementation("com.google.firebase:firebase-storage:20.3.0")
-    implementation("com.google.firebase:firebase-auth-ktx:22.3.1")
-    implementation("com.google.firebase:firebase-messaging-ktx:23.4.1")
+    implementation("com.google.firebase:firebase-storage:22.0.1")
+    implementation(libs.firebase.auth)
+    implementation("com.google.firebase:firebase-messaging-ktx:24.1.2")
 
     // Google Sign‑In
-    implementation("com.google.android.gms:play-services-auth:20.7.0")
+    implementation(libs.play.services.auth)
 
     // Glide (images)
     implementation("com.github.bumptech.glide:glide:4.16.0")

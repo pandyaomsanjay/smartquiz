@@ -7,6 +7,7 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.smartquiz.databinding.ActivityAdminPanelBinding
 
@@ -24,94 +25,116 @@ class AdminPanelActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         db = FirebaseFirestore.getInstance()
+        val auth = FirebaseAuth.getInstance()
+        val currentUser = auth.currentUser
 
-        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
-        binding.listUsers.adapter = adapter
-
-        loadUsers()
-
-        binding.btnAssignCreator.setOnClickListener {
-            val position = binding.listUsers.checkedItemPosition
-            if (position != -1) {
-                val user = users[position]
-                db.collection("users").document(user.uid).update("role", "creator")
-                    .addOnSuccessListener {
-                        Toast.makeText(this, "Role updated to creator", Toast.LENGTH_SHORT).show()
-                        loadUsers()
-                    }
-            } else {
-                Toast.makeText(this, "Select a user first", Toast.LENGTH_SHORT).show()
-            }
+        // 1. Ensure user is logged in
+        if (currentUser == null) {
+            Toast.makeText(this, "Please log in first", Toast.LENGTH_SHORT).show()
+            finish()
+            return
         }
 
-        binding.btnBanUser.setOnClickListener {
-            val position = binding.listUsers.checkedItemPosition
-            if (position != -1) {
-                val user = users[position]
-                db.collection("users").document(user.uid).update("isBanned", true)
-                    .addOnSuccessListener {
-                        Toast.makeText(this, "User banned", Toast.LENGTH_SHORT).show()
-                        loadUsers()
-                    }
-                    .addOnFailureListener {
-                        Toast.makeText(this, "Failed: ${it.message}", Toast.LENGTH_SHORT).show()
-                    }
-            } else {
-                Toast.makeText(this, "Select a user first", Toast.LENGTH_SHORT).show()
-            }
-        }
+        val userId = currentUser.uid
 
-        // NEW: Block user with reason
-        binding.btnBlockUser.setOnClickListener {
-            val position = binding.listUsers.checkedItemPosition
-            if (position != -1) {
-                val user = users[position]
-                val reasonEditText = EditText(this)
-                AlertDialog.Builder(this)
-                    .setTitle("Block User")
-                    .setMessage("Reason for blocking ${user.name}?")
-                    .setView(reasonEditText)
-                    .setPositiveButton("Block") { _, _ ->
-                        val reason = reasonEditText.text.toString().trim()
-                        if (reason.isEmpty()) {
-                            Toast.makeText(this, "Please enter a reason", Toast.LENGTH_SHORT).show()
-                            return@setPositiveButton
-                        }
-                        db.collection("users").document(user.uid).update("isBanned", true, "banReason", reason)
+        // 2. Verify admin role
+        db.collection("users").document(userId).get()
+            .addOnSuccessListener { doc ->
+                val role = doc.getString("role")?.lowercase() ?: "user"
+                if (role != "admin") {
+                    Toast.makeText(this, "Access Denied – Admin Only", Toast.LENGTH_LONG).show()
+                    finish()
+                    return@addOnSuccessListener
+                }
+
+                // 3. Admin-only initialisation
+                adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
+                binding.listUsers.adapter = adapter
+
+                loadUsers()
+
+                binding.btnAssignCreator.setOnClickListener {
+                    val position = binding.listUsers.checkedItemPosition
+                    if (position != -1) {
+                        val user = users[position]
+                        db.collection("users").document(user.uid).update("role", "creator")
                             .addOnSuccessListener {
-                                Toast.makeText(this, "User blocked with reason: $reason", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this, "Role updated to creator", Toast.LENGTH_SHORT).show()
                                 loadUsers()
                             }
-                            .addOnFailureListener { e ->
-                                Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
+                    } else {
+                        Toast.makeText(this, "Select a user first", Toast.LENGTH_SHORT).show()
                     }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            } else {
-                Toast.makeText(this, "Select a user first", Toast.LENGTH_SHORT).show()
+                }
+
+                binding.btnBanUser.setOnClickListener {
+                    val position = binding.listUsers.checkedItemPosition
+                    if (position != -1) {
+                        val user = users[position]
+                        db.collection("users").document(user.uid).update("isBanned", true)
+                            .addOnSuccessListener {
+                                Toast.makeText(this, "User banned", Toast.LENGTH_SHORT).show()
+                                loadUsers()
+                            }
+                            .addOnFailureListener {
+                                Toast.makeText(this, "Failed: ${it.message}", Toast.LENGTH_SHORT).show()
+                            }
+                    } else {
+                        Toast.makeText(this, "Select a user first", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                binding.btnBlockUser.setOnClickListener {
+                    val position = binding.listUsers.checkedItemPosition
+                    if (position != -1) {
+                        val user = users[position]
+                        val reasonEditText = EditText(this)
+                        AlertDialog.Builder(this)
+                            .setTitle("Block User")
+                            .setMessage("Reason for blocking ${user.name}?")
+                            .setView(reasonEditText)
+                            .setPositiveButton("Block") { _, _ ->
+                                val reason = reasonEditText.text.toString().trim()
+                                if (reason.isEmpty()) {
+                                    Toast.makeText(this, "Please enter a reason", Toast.LENGTH_SHORT).show()
+                                    return@setPositiveButton
+                                }
+                                db.collection("users").document(user.uid).update("isBanned", true, "banReason", reason)
+                                    .addOnSuccessListener {
+                                        Toast.makeText(this, "User blocked with reason: $reason", Toast.LENGTH_SHORT).show()
+                                        loadUsers()
+                                    }
+                                    .addOnFailureListener { e ->
+                                        Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    } else {
+                        Toast.makeText(this, "Select a user first", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                binding.btnManageQuizzes.setOnClickListener {
+                    startActivity(Intent(this, AdminQuizzesActivity::class.java))
+                }
+
+                binding.btnCheatLogs.setOnClickListener {
+                    startActivity(Intent(this, AdminCheatLogsActivity::class.java))
+                }
+
+                binding.btnAnalytics.setOnClickListener {
+                    startActivity(Intent(this, AdminAnalyticsActivity::class.java))
+                }
+
+                binding.btnAnnouncements.setOnClickListener {
+                    startActivity(Intent(this, AdminAnnouncementsActivity::class.java))
+                }
             }
-        }
-
-        // Navigate to Manage Quizzes
-        binding.btnManageQuizzes.setOnClickListener {
-            startActivity(Intent(this, AdminQuizzesActivity::class.java))
-        }
-
-        // Navigate to Cheat Logs
-        binding.btnCheatLogs.setOnClickListener {
-            startActivity(Intent(this, AdminCheatLogsActivity::class.java))
-        }
-
-        // Navigate to Analytics
-        binding.btnAnalytics.setOnClickListener {
-            startActivity(Intent(this, AdminAnalyticsActivity::class.java))
-        }
-
-        // Navigate to Announcements
-        binding.btnAnnouncements.setOnClickListener {
-            startActivity(Intent(this, AdminAnnouncementsActivity::class.java))
-        }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Error verifying permissions: ${e.message}", Toast.LENGTH_SHORT).show()
+                finish()
+            }
     }
 
     private fun loadUsers() {

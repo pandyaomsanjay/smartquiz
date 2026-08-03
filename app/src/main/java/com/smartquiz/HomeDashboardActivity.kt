@@ -34,13 +34,16 @@ class HomeDashboardActivity : AppCompatActivity() {
 
         loadUserData()
 
-        adapter = QuizAdapter(quizList) { quiz ->
+        adapter = QuizAdapter(quizList, { quiz ->
             val intent = Intent(this, QuizAttemptActivity::class.java)
             intent.putExtra("quizId", quiz.quizId)
             intent.putExtra("quizTitle", quiz.title)
             startActivity(intent)
             overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
-        }
+        }, { _ ->
+            // Delete not implemented in HomeDashboard, redirect to Creator Dashboard or show message
+            Toast.makeText(this, "To delete quizzes, go to Creator Dashboard", Toast.LENGTH_SHORT).show()
+        })
         binding.rvQuizzes.layoutManager = LinearLayoutManager(this)
         binding.rvQuizzes.adapter = adapter
 
@@ -133,12 +136,21 @@ class HomeDashboardActivity : AppCompatActivity() {
                         if (!isFinishing) binding.tvTotalQuizzes.text = results.size().toString()
                     }
 
+<<<<<<< HEAD
                 // Rank placeholder - you can implement real ranking later
                 binding.tvRank.text = "#1"
 
                 // 👇 ADMIN PANEL VISIBILITY
                 val role = doc.getString("role") ?: "user"
                 if (role.equals("admin", ignoreCase = true)) {
+=======
+                // Rank placeholder
+                binding.tvRank.text = "#1"
+
+                // ---- ADMIN PANEL VISIBILITY (FIXED) ----
+                val role = doc.getString("role")?.lowercase() ?: "user"
+                if (role == "admin") {
+>>>>>>> eb6db7b (Update quiz functionality)
                     binding.adminCardRow.visibility = View.VISIBLE
                     binding.chipAdminPanel.setOnClickListener {
                         startActivity(Intent(this, AdminPanelActivity::class.java))
@@ -182,7 +194,10 @@ class HomeDashboardActivity : AppCompatActivity() {
     }
 
     private fun loadPrivateQuizzes() {
+<<<<<<< HEAD
         // Private quizzes are not listed publicly
+=======
+>>>>>>> eb6db7b (Update quiz functionality)
         quizList.clear()
         updateAdapter()
         Toast.makeText(this, "Private quizzes can only be joined via code", Toast.LENGTH_SHORT).show()

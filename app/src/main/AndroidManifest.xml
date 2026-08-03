@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     package="com.smartquiz">
+
     <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -10,9 +11,14 @@
 
     <queries>
         <package android:name="com.google.android.gms" />
+        <package android:name="com.android.vending" />
+        <intent>
+            <action android:name="com.google.android.gms.auth.api.signin.SERVICE_CONFIG_UPDATED" />
+        </intent>
     </queries>
 
     <application
+        android:name=".QuizApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -23,9 +29,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SmartQuiz"
         tools:replace="android:theme">
-        <activity
-            android:name=".QuizDetailsActivity"
-            android:exported="false" />
+
         <!-- FileProvider for sharing images -->
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -35,15 +39,30 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
-        </provider> <!-- ZXing QR scanner activity – overrides library theme & orientation -->
+        </provider>
+
+        <!-- ZXing QR scanner activity – overrides library theme & orientation -->
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.AppCompat.NoActionBar"
-            tools:replace="android:theme,android:screenOrientation" /> <!-- Your activities -->
+            tools:replace="android:theme,android:screenOrientation" />
+
+        <!-- Your activities -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
+
+        <activity
+            android:name=".QuizDetailsActivity"
+            android:exported="false" />
         <activity
             android:name=".SubmissionSuccessActivity"
             android:exported="false" />
+        <activity
+            android:name=".AdminPanelActivity"
+            android:label="Admin Panel"
+            android:parentActivityName=".HomeDashboardActivity" />
         <activity
             android:name=".AdminAnnouncementsActivity"
             android:exported="false" />
@@ -68,9 +87,7 @@
         <activity
             android:name=".SettingsActivity"
             android:exported="false" />
-        <activity
-            android:name=".AdminPanelActivity"
-            android:exported="false" />
+
         <activity
             android:name=".UserProfileActivity"
             android:exported="false" />
@@ -106,10 +123,11 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity> <!-- Firebase messaging service -->
+        </activity>
+
+        <!-- Firebase messaging service -->
         <service
             android:name=".MyFirebaseMessagingService"
             android:exported="false">

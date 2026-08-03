@@ -21,23 +21,25 @@
         android:padding="16dp"
         android:gravity="center_vertical">
 
+        <!-- Left colored bar -->
         <View
             android:layout_width="6dp"
             android:layout_height="40dp"
-            android:background="@color/primary" />
+            android:background="@color/primary"
+            android:layout_marginEnd="14dp" />
 
+        <!-- Quiz info -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="14dp"
             android:orientation="vertical">
 
             <TextView
                 android:id="@+id/tvQuizTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Advanced Android Architecture Quiz"
+                android:text="Quiz Title"
                 android:textSize="16sp"
                 android:textFontWeight="600"
                 android:textColor="@color/text_primary" />
@@ -46,17 +48,21 @@
                 android:id="@+id/tvQuizMetadata"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="15 Questions • 45 Mins"
+                android:text="0 Questions • 0 Mins"
                 android:textSize="13sp"
                 android:textColor="@color/text_secondary"
                 android:layout_marginTop="4dp" />
         </LinearLayout>
 
+        <!-- Delete button (only this) -->
         <ImageView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:src="@drawable/ic_add"
-            android:rotation="45"
-            app:tint="@color/primary" />
+            android:id="@+id/ivDelete"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_delete"
+            app:tint="@color/error"
+            android:padding="6dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Delete Quiz" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

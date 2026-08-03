@@ -92,7 +92,7 @@
 
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="81dp"
                     android:orientation="vertical"
                     android:padding="20dp">
 
@@ -136,7 +136,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:padding="16dp">
+                android:paddingHorizontal="16dp">
+
                 <Button
                     android:id="@+id/btnExportCsv"
                     android:layout_width="0dp"
@@ -145,6 +146,7 @@
                     android:text="Export CSV"
                     android:layout_marginEnd="8dp"
                     style="@style/Widget.Material3.Button.OutlinedButton" />
+
                 <Button
                     android:id="@+id/btnExportPdf"
                     android:layout_width="0dp"
@@ -154,7 +156,45 @@
                     style="@style/Widget.Material3.Button.OutlinedButton" />
             </LinearLayout>
 
-            <!-- Space after last element (so content doesn't stick to bottom) -->
+            <!-- NEW: Download Question Paper Button -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="16dp">
+
+                <Button
+                    android:id="@+id/btnDownloadQuestionPaper"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="Download Question Paper"
+                    android:backgroundTint="@color/primary"
+                    app:icon="@drawable/ic_download"
+                    app:iconGravity="textStart" />
+            </LinearLayout>
+
+            <!-- Cheating Logs -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="16dp">
+
+                <Button
+                    android:id="@+id/btnCheatLogs"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="View Cheating Logs"
+                    android:backgroundTint="@android:color/holo_red_dark"
+                    app:icon="@drawable/ic_warning"
+                    app:iconGravity="textStart" />
+            </LinearLayout>
+
+            <!-- Space after last element -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="16dp" />
