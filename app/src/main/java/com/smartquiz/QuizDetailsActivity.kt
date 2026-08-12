@@ -3,7 +3,6 @@ package com.smartquiz
 import android.content.Intent
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
-import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
@@ -150,7 +149,7 @@ class QuizDetailsActivity : AppCompatActivity() {
 
         binding.btnReattempt.setOnClickListener {
             if (attemptStatus == "In Progress") {
-                val intent = Intent(this, QuizInstructionsActivity::class.java)
+                val intent = Intent(this, QuizAttemptActivity::class.java)
                 intent.putExtra("quizId", joinedQuiz.quizId)
                 intent.putExtra("quizTitle", joinedQuiz.quizTitle)
                 intent.putExtra("creatorId", joinedQuiz.creatorId)
@@ -255,18 +254,32 @@ class QuizDetailsActivity : AppCompatActivity() {
         for ((qId, answer) in answers) {
             val question = questionsMap[qId] ?: continue
 
-            // Build answer text based on type
+            // ---- FIX: Convert answer to appropriate type ----
             val answerText = when (question.questionType) {
                 "radio" -> {
-                    val idx = answer as? Int
+                    val idx = when (answer) {
+                        is Int -> answer
+                        is Long -> answer.toInt()
+                        is Double -> answer.toInt()
+                        else -> null
+                    }
                     if (idx != null && idx in question.options.indices) question.options[idx] else "Not answered"
                 }
                 "checkbox" -> {
-                    val indices = answer as? List<*>
-                    if (indices != null) {
-                        val texts = indices.filterIsInstance<Int>()
-                            .mapNotNull { if (it in question.options.indices) question.options[it] else null }
-                        if (texts.isNotEmpty()) texts.joinToString(", ") else "None selected"
+                    val indices = when (answer) {
+                        is List<*> -> answer.mapNotNull { item ->
+                            when (item) {
+                                is Int -> item
+                                is Long -> item.toInt()
+                                is Double -> item.toInt()
+                                else -> null
+                            }
+                        }
+                        else -> emptyList()
+                    }
+                    if (indices.isNotEmpty()) {
+                        indices.mapNotNull { if (it in question.options.indices) question.options[it] else null }
+                            .joinToString(", ")
                     } else "None selected"
                 }
                 "descriptive" -> answer as? String ?: "Not answered"

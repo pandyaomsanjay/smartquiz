@@ -2,6 +2,8 @@ package com.smartquiz
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.appcompat.app.AppCompatActivity
 import com.smartquiz.databinding.ActivitySubmissionSuccessBinding
 import java.text.SimpleDateFormat
@@ -32,7 +34,17 @@ class SubmissionSuccessActivity : AppCompatActivity() {
 
         binding.btnHome.setOnClickListener {
             startActivity(Intent(this, HomeDashboardActivity::class.java))
-            finish()
+            safeFinish()
+        }
+    }
+
+    private fun safeFinish() {
+        if (!isFinishing && !isDestroyed) {
+            Handler(Looper.getMainLooper()).post {
+                if (!isFinishing && !isDestroyed) {
+                    finish()
+                }
+            }
         }
     }
 }

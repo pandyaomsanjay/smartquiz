@@ -7,6 +7,7 @@
     android:fitsSystemWindows="true"
     android:background="@color/background">
 
+    <!-- Toolbar -->
     <androidx.appcompat.widget.Toolbar
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
@@ -14,71 +15,73 @@
         android:background="@color/primary"
         app:titleTextColor="@android:color/white" />
 
-    <!-- Header: progress bar + marks + timer -->
+    <!-- Header: Progress, Timer, Question counter -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp"
+        android:orientation="vertical"
+        android:padding="12dp"
         android:background="@color/surface"
         android:elevation="2dp">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- Progress text and bar -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvProgressText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0/0"
+                    android:textSize="12sp"
+                    android:textColor="@color/on_surface_variant" />
+
+                <ProgressBar
+                    android:id="@+id/progressOverall"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:progress="0"
+                    android:max="100"
+                    android:progressTint="@color/primary" />
+            </LinearLayout>
+
+            <!-- Marks -->
             <TextView
-                android:id="@+id/tvProgress"
+                android:id="@+id/tvMarks"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="1/10"
+                android:text="0 marks"
                 android:textSize="14sp"
-                android:textColor="@color/on_surface_variant" />
-            <com.google.android.material.progressindicator.LinearProgressIndicator
-                android:id="@+id/progressIndicator"
-                android:layout_width="match_parent"
-                android:layout_height="8dp"
-                android:progress="50"
-                app:trackCornerRadius="4dp" />
-        </LinearLayout>
-
-        <!-- Marks indicator -->
-        <TextView
-            android:id="@+id/tvMarks"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="0 marks"
-            android:textSize="14sp"
-            android:textColor="@color/on_surface_variant"
-            android:layout_marginStart="16dp"
-            android:layout_gravity="center_vertical" />
-
-        <!-- Timer with label -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center_vertical"
-            android:layout_marginStart="16dp">
-            <TextView
-                android:id="@+id/tvTimerLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Time Remaining"
-                android:textSize="10sp"
                 android:textColor="@color/on_surface_variant"
-                android:gravity="center"
-                android:visibility="gone" />
+                android:layout_marginStart="12dp" />
+
+            <!-- Timer -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-                <ImageView
-                    android:layout_width="16dp"
-                    android:layout_height="16dp"
-                    android:src="@drawable/ic_timer" />
+                android:orientation="vertical"
+                android:gravity="center"
+                android:layout_marginStart="12dp">
+
+                <TextView
+                    android:id="@+id/tvTimerLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Time Remaining"
+                    android:textSize="10sp"
+                    android:textColor="@color/on_surface_variant"
+                    android:visibility="gone" />
+
                 <TextView
                     android:id="@+id/tvTimer"
                     android:layout_width="wrap_content"
@@ -87,10 +90,19 @@
                     android:textSize="18sp"
                     android:textStyle="bold"
                     android:textColor="@color/error"
-                    android:layout_marginStart="4dp"
                     android:visibility="gone" />
             </LinearLayout>
         </LinearLayout>
+
+        <!-- Question counter (e.g., Question 3/10) -->
+        <TextView
+            android:id="@+id/tvProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1/10"
+            android:textSize="14sp"
+            android:textColor="@color/on_surface_variant"
+            android:layout_marginTop="4dp" />
     </LinearLayout>
 
     <!-- Question Card -->
@@ -118,6 +130,7 @@
                     android:orientation="vertical"
                     android:padding="20dp">
 
+                    <!-- Question Text -->
                     <TextView
                         android:id="@+id/tvQuestion"
                         android:layout_width="match_parent"
@@ -128,6 +141,7 @@
                         android:textColor="@color/on_surface"
                         android:layout_marginBottom="16dp" />
 
+                    <!-- Media Views -->
                     <ImageView
                         android:id="@+id/ivQuestionImage"
                         android:layout_width="match_parent"
@@ -157,7 +171,7 @@
                             android:text="Play Audio" />
                     </LinearLayout>
 
-                    <!-- Options container (will be populated dynamically) -->
+                    <!-- Options container (dynamically populated) -->
                     <LinearLayout
                         android:id="@+id/radioGroupOptions"
                         android:layout_width="match_parent"
@@ -168,38 +182,71 @@
         </LinearLayout>
     </ScrollView>
 
-    <!-- Bottom Navigation Buttons -->
+    <!-- Bottom Navigation Bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp"
-        android:gravity="center">
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:background="@color/surface"
+        android:elevation="4dp">
 
-        <Button
-            android:id="@+id/btnPrevious"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="0dp"
+        <!-- First row: Previous, Mark for Review, Bookmark, Grid -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:layout_weight="1"
-            android:text="Previous" />
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="4dp">
 
-        <Button
-            android:id="@+id/btnBookmark"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Bookmark"
-            android:layout_marginEnd="8dp"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            <Button
+                android:id="@+id/btnPrevious"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="Previous"
+                android:layout_marginEnd="4dp"
+                android:textSize="12sp" />
 
+            <Button
+                android:id="@+id/btnMarkForReview"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="Review"
+                android:layout_marginHorizontal="4dp"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnBookmark"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="Bookmark"
+                android:layout_marginHorizontal="4dp"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnGrid"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="Grid"
+                android:layout_marginStart="4dp"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- Second row: Next / Submit -->
         <Button
             android:id="@+id/btnNextOrSubmit"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
             android:backgroundTint="@color/primary"
-            android:text="Next" />
+            android:text="Next"
+            android:textSize="16sp" />
     </LinearLayout>
 </LinearLayout>

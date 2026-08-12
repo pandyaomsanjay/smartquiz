@@ -51,12 +51,31 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:hint="Quiz Title"
-                    android:layout_marginBottom="16dp">
+                    android:layout_marginBottom="8dp">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etQuizTitle"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content" />
+                        android:layout_height="wrap_content"
+                        android:inputType="text"
+                        android:maxLines="1" />
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- Title feedback (inline validation) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="16dp">
+
+                    <TextView
+                        android:id="@+id/tvTitleFeedback"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text=""
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+                </LinearLayout>
 
                 <!-- Description -->
                 <com.google.android.material.textfield.TextInputLayout
@@ -195,6 +214,52 @@
                         android:text="00:00:30" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- Randomization Mode -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Question Randomization"
+                    android:textAppearance="?attr/textAppearanceTitleSmall"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@color/border_light"
+                    app:strokeWidth="1dp"
+                    android:layout_marginBottom="16dp">
+
+                    <RadioGroup
+                        android:id="@+id/radioGroupRandomization"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="12dp">
+
+                        <RadioButton
+                            android:id="@+id/radioFixedOrder"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Fixed Order"
+                            android:checked="true" />
+
+                        <RadioButton
+                            android:id="@+id/radioRandomQuestionOrder"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Random Question Order" />
+
+                        <RadioButton
+                            android:id="@+id/radioRandomQuestionAndOptionOrder"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Random Question &amp; Option Order" />
+                    </RadioGroup>
+                </com.google.android.material.card.MaterialCardView>
+
                 <!-- Deadline -->
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -245,6 +310,34 @@
                         android:inputType="numberDecimal"
                         android:text="0.25" />
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- NEW: Show Score After Submission -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="16dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Show Score After Submission"
+                        android:textAppearance="?attr/textAppearanceBody1" />
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/switchShowScore"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="When enabled, participants can see their score after submitting the quiz."
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginTop="4dp" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

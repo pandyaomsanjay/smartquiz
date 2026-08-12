@@ -21,8 +21,12 @@ data class Quiz(
     val hasImageQuestions: Boolean = false,
     val hasAudioQuestions: Boolean = false,
     val hasVideoQuestions: Boolean = false,
-    // NEW TIMER FIELDS
+    // TIMER FIELDS
     val timerType: String = "NONE",        // "NONE", "WHOLE_QUIZ", "PER_QUESTION"
-    val totalTimeSeconds: Long = 0,        // for WHOLE_QUIZ
-    val timePerQuestionSeconds: Long = 0   // for PER_QUESTION
+    val totalTimeSeconds: Long = 0,
+    val timePerQuestionSeconds: Long = 0,
+    // Randomization mode
+    val randomizationMode: String = "FIXED_ORDER",  // "FIXED_ORDER", "RANDOM_QUESTION_ORDER", "RANDOM_QUESTION_AND_OPTION_ORDER"
+    // NEW: Score visibility for participants
+    val showScoreAfterSubmission: Boolean = true
 ) : Serializable

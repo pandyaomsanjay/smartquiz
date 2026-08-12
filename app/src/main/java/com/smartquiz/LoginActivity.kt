@@ -2,6 +2,8 @@ package com.smartquiz
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -10,9 +12,11 @@ import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.GoogleAuthProvider
-import com.smartquiz.databinding.ActivityLoginBinding
 import com.google.firebase.firestore.FirebaseFirestore
+import com.smartquiz.databinding.ActivityLoginBinding
 
 class LoginActivity : AppCompatActivity() {
     private lateinit var binding: ActivityLoginBinding
@@ -38,14 +42,12 @@ class LoginActivity : AppCompatActivity() {
 
         auth = FirebaseAuth.getInstance()
 
-        // Configure Google Sign-In
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(getString(R.string.default_web_client_id))
             .requestEmail()
             .build()
         googleSignInClient = GoogleSignIn.getClient(this, gso)
 
-        // Email/Password Login
         binding.btnLogin.setOnClickListener {
             val email = binding.etEmail.text.toString().trim()
             val password = binding.etPassword.text.toString().trim()
@@ -53,18 +55,44 @@ class LoginActivity : AppCompatActivity() {
                 Toast.makeText(this, "Please fill all fields", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+
             auth.signInWithEmailAndPassword(email, password)
                 .addOnCompleteListener { task ->
                     if (task.isSuccessful) {
-                        startActivity(Intent(this, HomeDashboardActivity::class.java))
-                        finish()
+                        // Check if user is banned
+                        val userId = auth.currentUser?.uid
+                        if (userId != null) {
+                            FirebaseFirestore.getInstance().collection("users").document(userId).get()
+                                .addOnSuccessListener { doc ->
+                                    val isBanned = doc.getBoolean("isBanned") ?: false
+                                    if (isBanned) {
+                                        Toast.makeText(this, "Your account has been banned.", Toast.LENGTH_LONG).show()
+                                        auth.signOut()
+                                    } else {
+                                        startActivity(Intent(this, HomeDashboardActivity::class.java))
+                                        safeFinish()
+                                    }
+                                }
+                                .addOnFailureListener {
+                                    // If we can't check ban, allow login
+                                    startActivity(Intent(this, HomeDashboardActivity::class.java))
+                                    safeFinish()
+                                }
+                        } else {
+                            startActivity(Intent(this, HomeDashboardActivity::class.java))
+                            safeFinish()
+                        }
                     } else {
-                        Toast.makeText(this, "Login failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                        val errorMessage = when (task.exception) {
+                            is FirebaseAuthInvalidUserException -> "No account found with this email."
+                            is FirebaseAuthInvalidCredentialsException -> "Incorrect password."
+                            else -> "Login failed: ${task.exception?.message}"
+                        }
+                        Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
                     }
                 }
         }
 
-        // Google Sign-In button
         binding.btnGoogleSignIn.setOnClickListener {
             googleSignInClient.signOut().addOnCompleteListener {
                 val signInIntent = googleSignInClient.signInIntent
@@ -72,7 +100,6 @@ class LoginActivity : AppCompatActivity() {
             }
         }
 
-        // Forgot Password
         binding.tvForgotPassword.setOnClickListener {
             val email = binding.etEmail.text.toString().trim()
             if (email.isEmpty()) {
@@ -93,28 +120,59 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
+    private fun safeFinish() {
+        if (!isFinishing && !isDestroyed) {
+            Handler(Looper.getMainLooper()).post {
+                if (!isFinishing && !isDestroyed) {
+                    finish()
+                }
+            }
+        }
+    }
+
     private fun firebaseAuthWithGoogle(idToken: String) {
         val credential = GoogleAuthProvider.getCredential(idToken, null)
         auth.signInWithCredential(credential)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
-                    // Check if new user -> store in Firestore
                     val user = auth.currentUser
-                    if (task.result.additionalUserInfo?.isNewUser == true) {
-                        val userMap = hashMapOf(
-                            "uid" to user?.uid,
-                            "name" to user?.displayName,
-                            "email" to user?.email,
-                            "role" to "user",
-                            "createdAt" to System.currentTimeMillis()
-                        )
-                        FirebaseFirestore.getInstance().collection("users").document(user!!.uid)
-                            .set(userMap)
+                    val isNewUser = task.result.additionalUserInfo?.isNewUser ?: false
+
+                    // 🔒 NEW: Reject new Google users on the login page
+                    if (isNewUser) {
+                        Toast.makeText(
+                            this,
+                            "No account found. Please sign up first using email/password.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        auth.signOut()
+                        return@addOnCompleteListener
                     }
-                    startActivity(Intent(this, HomeDashboardActivity::class.java))
-                    finish()
+
+                    // Existing Google user – normal login
+                    val userId = user?.uid
+                    if (userId != null) {
+                        FirebaseFirestore.getInstance().collection("users").document(userId).get()
+                            .addOnSuccessListener { doc ->
+                                val isBanned = doc.getBoolean("isBanned") ?: false
+                                if (isBanned) {
+                                    Toast.makeText(this, "Your account has been banned.", Toast.LENGTH_LONG).show()
+                                    auth.signOut()
+                                } else {
+                                    startActivity(Intent(this, HomeDashboardActivity::class.java))
+                                    safeFinish()
+                                }
+                            }
+                            .addOnFailureListener {
+                                startActivity(Intent(this, HomeDashboardActivity::class.java))
+                                safeFinish()
+                            }
+                    } else {
+                        startActivity(Intent(this, HomeDashboardActivity::class.java))
+                        safeFinish()
+                    }
                 } else {
-                    Toast.makeText(this, "Google sign-in failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Google sign-in failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
                 }
             }
     }

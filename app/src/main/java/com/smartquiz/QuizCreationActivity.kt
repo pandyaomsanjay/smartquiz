@@ -4,6 +4,8 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
@@ -24,6 +26,10 @@ class QuizCreationActivity : AppCompatActivity() {
     private lateinit var adapter: QuestionPreviewAdapter
     private val calendar = Calendar.getInstance()
     private var deadlineTimestamp = 0L
+
+    // Debounce handler for title validation
+    private val titleCheckHandler = Handler(Looper.getMainLooper())
+    private var titleCheckRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,12 +80,32 @@ class QuizCreationActivity : AppCompatActivity() {
 
         updateQuestionsCount()
         binding.radioPrivate.isChecked = true
+        // Default randomization mode: fixed order
+        binding.radioFixedOrder.isChecked = true
+        binding.switchShowScore.isChecked = true
+
+        // Title validation on focus change
+        binding.etQuizTitle.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                checkTitleDuplicate()
+            }
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {
-        onBackPressed()
+        onBackPressedDispatcher.onBackPressed()
         overridePendingTransition(android.R.anim.slide_in_left, android.R.anim.slide_out_right)
         return true
+    }
+
+    private fun safeFinish() {
+        if (!isFinishing && !isDestroyed) {
+            Handler(Looper.getMainLooper()).post {
+                if (!isFinishing && !isDestroyed) {
+                    finish()
+                }
+            }
+        }
     }
 
     private fun showDateTimePicker() {
@@ -107,6 +133,70 @@ class QuizCreationActivity : AppCompatActivity() {
         ).show()
     }
 
+    // ---------- DUPLICATE TITLE VALIDATION ----------
+    private fun normalizeTitle(title: String): String {
+        return title.trim()
+            .replace(Regex("\\s+"), " ")
+            .lowercase(Locale.getDefault())
+    }
+
+    private fun checkTitleDuplicate() {
+        val title = binding.etQuizTitle.text.toString().trim()
+        if (title.isEmpty()) {
+            binding.tvTitleFeedback.visibility = View.GONE
+            return
+        }
+
+        val normalized = normalizeTitle(title)
+        val creatorId = auth.currentUser?.uid ?: return
+
+        titleCheckRunnable?.let { titleCheckHandler.removeCallbacks(it) }
+
+        titleCheckRunnable = Runnable {
+            db.collection("quizzes")
+                .whereEqualTo("creatorId", creatorId)
+                .get()
+                .addOnSuccessListener { docs ->
+                    val duplicate = docs.any { doc ->
+                        val existingTitle = doc.getString("title") ?: ""
+                        normalizeTitle(existingTitle) == normalized
+                    }
+                    if (duplicate) {
+                        binding.tvTitleFeedback.text = "⚠ Quiz title already exists"
+                        binding.tvTitleFeedback.setTextColor(getColor(R.color.error))
+                        binding.tvTitleFeedback.visibility = View.VISIBLE
+                    } else {
+                        binding.tvTitleFeedback.text = "✓ Title available"
+                        binding.tvTitleFeedback.setTextColor(getColor(R.color.success))
+                        binding.tvTitleFeedback.visibility = View.VISIBLE
+                    }
+                }
+                .addOnFailureListener {
+                    binding.tvTitleFeedback.visibility = View.GONE
+                }
+        }
+        titleCheckHandler.postDelayed(titleCheckRunnable!!, 500)
+    }
+
+    private fun isTitleDuplicate(title: String): Boolean {
+        val normalized = normalizeTitle(title)
+        val creatorId = auth.currentUser?.uid ?: return false
+        return try {
+            val docs = com.google.android.gms.tasks.Tasks.await(
+                db.collection("quizzes")
+                    .whereEqualTo("creatorId", creatorId)
+                    .get()
+            )
+            docs.any { doc ->
+                val existingTitle = doc.getString("title") ?: ""
+                normalizeTitle(existingTitle) == normalized
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // ---------- ADD QUESTION DIALOG ----------
     private fun showAddQuestionDialog(existingQuestion: Question?) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_add_question, null)
         val etQuestionText = dialogView.findViewById<EditText>(R.id.etQuestionText)
@@ -228,10 +318,15 @@ class QuizCreationActivity : AppCompatActivity() {
                     1 -> "checkbox"
                     else -> "descriptive"
                 }
-                val points = etPoints.text.toString().toIntOrNull() ?: 1
+                val points = etPoints.text.toString().toIntOrNull() ?: 0
                 val imageUrl = etImageUrl.text.toString().trim()
                 val audioUrl = etAudioUrl.text.toString().trim()
                 val videoUrl = etVideoUrl.text.toString().trim()
+
+                if (points <= 0) {
+                    Toast.makeText(this, "Points must be greater than 0", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
 
                 when (type) {
                     "radio" -> {
@@ -357,14 +452,134 @@ class QuizCreationActivity : AppCompatActivity() {
             .show()
     }
 
+    // ---------- VALIDATION ----------
+    private fun validateQuiz(): Boolean {
+        val title = binding.etQuizTitle.text.toString().trim()
+        if (title.isEmpty()) {
+            binding.etQuizTitle.error = "Quiz title is required"
+            binding.etQuizTitle.requestFocus()
+            Toast.makeText(this, "Please enter a quiz title", Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        // Duplicate title check (final authoritative)
+        if (isTitleDuplicate(title)) {
+            Toast.makeText(this, "Quiz title already exists. Please choose a different title.", Toast.LENGTH_LONG).show()
+            binding.etQuizTitle.requestFocus()
+            return false
+        }
+
+        val description = binding.etQuizDescription.text.toString().trim()
+        if (description.isEmpty()) {
+            binding.etQuizDescription.error = "Description is required"
+            binding.etQuizDescription.requestFocus()
+            Toast.makeText(this, "Please enter a description", Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        if (questionsList.isEmpty()) {
+            Toast.makeText(this, "Add at least one question", Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        for (q in questionsList) {
+            if (q.text.isBlank()) {
+                Toast.makeText(this, "One or more questions have empty text", Toast.LENGTH_SHORT).show()
+                return false
+            }
+            when (q.questionType) {
+                "radio" -> {
+                    if (q.correctAnswerIndex < 0 || q.correctAnswerIndex >= q.options.size) {
+                        Toast.makeText(this, "One or more questions have invalid correct answer", Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                }
+                "checkbox" -> {
+                    if (q.correctAnswerIndices.isEmpty()) {
+                        Toast.makeText(this, "One or more checkbox questions have no correct option selected", Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    for (idx in q.correctAnswerIndices) {
+                        if (idx < 0 || idx >= q.options.size) {
+                            Toast.makeText(this, "One or more questions have invalid correct answer", Toast.LENGTH_SHORT).show()
+                            return false
+                        }
+                    }
+                }
+                "descriptive" -> {
+                    if (q.correctAnswerText.isBlank()) {
+                        Toast.makeText(this, "One or more descriptive questions have no correct answer text", Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                }
+            }
+            if (q.points <= 0) {
+                Toast.makeText(this, "Each question must have points > 0", Toast.LENGTH_SHORT).show()
+                return false
+            }
+        }
+
+        val timerType = when (binding.radioGroupTimerType.checkedRadioButtonId) {
+            R.id.radioWholeQuizTimer -> "WHOLE_QUIZ"
+            R.id.radioPerQuestionTimer -> "PER_QUESTION"
+            else -> "NONE"
+        }
+        when (timerType) {
+            "WHOLE_QUIZ" -> {
+                val input = binding.etTotalTime.text.toString()
+                val totalSeconds = parseDurationToSeconds(input)
+                if (totalSeconds == null || totalSeconds <= 0) {
+                    binding.etTotalTime.error = "Please enter a valid time (e.g., 00:30:00)"
+                    binding.etTotalTime.requestFocus()
+                    Toast.makeText(this, "Please enter a valid total time", Toast.LENGTH_SHORT).show()
+                    return false
+                }
+            }
+            "PER_QUESTION" -> {
+                val input = binding.etPerQuestionTime.text.toString()
+                val perSeconds = parseDurationToSeconds(input)
+                if (perSeconds == null || perSeconds <= 0) {
+                    binding.etPerQuestionTime.error = "Please enter a valid time (e.g., 00:01:00)"
+                    binding.etPerQuestionTime.requestFocus()
+                    Toast.makeText(this, "Please enter a valid time per question", Toast.LENGTH_SHORT).show()
+                    return false
+                }
+            }
+            else -> { /* No timer, ok */ }
+        }
+
+        val negativeMarking = binding.switchNegativeMarking?.isChecked ?: false
+        if (negativeMarking) {
+            val negativeValue = binding.etNegativeValue?.text.toString().toFloatOrNull()
+            if (negativeValue == null || negativeValue <= 0f || negativeValue > 1f) {
+                binding.etNegativeValue?.error = "Must be between 0 and 1"
+                binding.etNegativeValue?.requestFocus()
+                Toast.makeText(this, "Negative marking value must be between 0 and 1", Toast.LENGTH_SHORT).show()
+                return false
+            }
+        }
+
+        if (deadlineTimestamp > 0 && deadlineTimestamp <= System.currentTimeMillis()) {
+            binding.etDeadline.error = "Deadline must be in the future"
+            binding.etDeadline.requestFocus()
+            Toast.makeText(this, "Deadline must be in the future", Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        return true
+    }
+
     private fun saveQuiz() {
+        if (!validateQuiz()) {
+            return
+        }
+
         val title = binding.etQuizTitle.text.toString().trim()
         val description = binding.etQuizDescription.text.toString().trim()
         val visibility = if (binding.radioPublic.isChecked) "public" else "private"
         val negativeMarking = binding.switchNegativeMarking?.isChecked ?: false
         val negativeMarkingValue = binding.etNegativeValue?.text.toString().toFloatOrNull() ?: 0.25f
 
-        // ---- Timer type and values ----
         val timerType = when (binding.radioGroupTimerType.checkedRadioButtonId) {
             R.id.radioWholeQuizTimer -> "WHOLE_QUIZ"
             R.id.radioPerQuestionTimer -> "PER_QUESTION"
@@ -377,19 +592,11 @@ class QuizCreationActivity : AppCompatActivity() {
             "WHOLE_QUIZ" -> {
                 val input = binding.etTotalTime.text.toString()
                 totalTimeSeconds = parseDurationToSeconds(input) ?: 0
-                if (totalTimeSeconds <= 0) {
-                    Toast.makeText(this, "Please enter a valid total time (e.g., 00:30:00)", Toast.LENGTH_SHORT).show()
-                    return
-                }
                 perQuestionSeconds = 0
             }
             "PER_QUESTION" -> {
                 val input = binding.etPerQuestionTime.text.toString()
                 perQuestionSeconds = parseDurationToSeconds(input) ?: 0
-                if (perQuestionSeconds <= 0) {
-                    Toast.makeText(this, "Please enter a valid time per question (e.g., 00:00:30)", Toast.LENGTH_SHORT).show()
-                    return
-                }
                 totalTimeSeconds = 0
             }
             else -> {
@@ -398,14 +605,13 @@ class QuizCreationActivity : AppCompatActivity() {
             }
         }
 
-        if (title.isEmpty()) {
-            Toast.makeText(this, "Quiz title required", Toast.LENGTH_SHORT).show()
-            return
+        val randomizationMode = when (binding.radioGroupRandomization.checkedRadioButtonId) {
+            R.id.radioRandomQuestionOrder -> "RANDOM_QUESTION_ORDER"
+            R.id.radioRandomQuestionAndOptionOrder -> "RANDOM_QUESTION_AND_OPTION_ORDER"
+            else -> "FIXED_ORDER"
         }
-        if (questionsList.isEmpty()) {
-            Toast.makeText(this, "Add at least one question", Toast.LENGTH_SHORT).show()
-            return
-        }
+
+        val showScoreAfterSubmission = binding.switchShowScore.isChecked
 
         val quizCode = if (visibility == "private") Random.nextInt(100000, 999999).toString() else ""
 
@@ -417,17 +623,18 @@ class QuizCreationActivity : AppCompatActivity() {
             visibility = visibility,
             createdAt = System.currentTimeMillis(),
             totalQuestions = questionsList.size,
-            timerSeconds = 0, // legacy – not used
+            timerSeconds = 0,
             deadline = deadlineTimestamp,
             negativeMarking = negativeMarking,
             negativeMarkingValue = negativeMarkingValue,
             hasImageQuestions = questionsList.any { it.imageUrl.isNotEmpty() },
             hasAudioQuestions = questionsList.any { it.audioUrl.isNotEmpty() },
             hasVideoQuestions = questionsList.any { it.videoUrl.isNotEmpty() },
-            // NEW TIMER FIELDS
             timerType = timerType,
             totalTimeSeconds = totalTimeSeconds,
-            timePerQuestionSeconds = perQuestionSeconds
+            timePerQuestionSeconds = perQuestionSeconds,
+            randomizationMode = randomizationMode,
+            showScoreAfterSubmission = showScoreAfterSubmission
         )
 
         db.collection("quizzes").add(quiz)
@@ -462,7 +669,7 @@ class QuizCreationActivity : AppCompatActivity() {
                     intent.putExtra("quizId", docRef.id)
                     intent.putExtra("quizTitle", title)
                     startActivity(intent)
-                    finish()
+                    safeFinish()
                 }.addOnFailureListener { e ->
                     Toast.makeText(this, "Error saving questions: ${e.message}", Toast.LENGTH_SHORT).show()
                 }

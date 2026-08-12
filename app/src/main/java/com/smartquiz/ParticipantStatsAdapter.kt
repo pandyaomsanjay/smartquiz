@@ -19,12 +19,14 @@ class ParticipantStatsAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
+        // Serial number (position + 1)
+        holder.binding.tvSrNo.text = (position + 1).toString()
         holder.binding.tvName.text = item.name
         holder.binding.tvEmail.text = item.email
         holder.binding.tvScore.text = "${item.score}/${item.totalScore} (${item.percentage}%)"
         holder.binding.tvTimeSpent.text = item.formattedDuration
         holder.binding.tvEntryTime.text = item.formattedStart
-        holder.binding.tvStatus.text = item.status
+        holder.binding.tvStatus.text = item.statusDisplay
 
         holder.itemView.setOnClickListener { onItemClick(item) }
     }

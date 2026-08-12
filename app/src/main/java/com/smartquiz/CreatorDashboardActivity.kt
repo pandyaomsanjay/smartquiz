@@ -2,6 +2,8 @@ package com.smartquiz
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -14,7 +16,8 @@ class CreatorDashboardActivity : AppCompatActivity() {
     private lateinit var binding: ActivityCreatorDashboardBinding
     private lateinit var db: FirebaseFirestore
     private lateinit var auth: FirebaseAuth
-    private val quizList = mutableListOf<Quiz>()
+    private val allQuizzes = mutableListOf<Quiz>()          // Source of truth
+    private val displayedQuizzes = mutableListOf<Quiz>()    // Filtered list for adapter
     private lateinit var quizAdapter: QuizAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,13 +27,13 @@ class CreatorDashboardActivity : AppCompatActivity() {
 
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.setHomeAsUpIndicator(R.drawable.ic_back)  // custom back arrow
+        supportActionBar?.setHomeAsUpIndicator(R.drawable.ic_back)
 
         db = FirebaseFirestore.getInstance()
         auth = FirebaseAuth.getInstance()
 
         quizAdapter = QuizAdapter(
-            quizList,
+            displayedQuizzes,
             onQuizClick = { quiz ->
                 val intent = Intent(this, QuizStatsActivity::class.java)
                 intent.putExtra("quizId", quiz.quizId)
@@ -43,6 +46,16 @@ class CreatorDashboardActivity : AppCompatActivity() {
         )
         binding.rvMyQuizzes.layoutManager = LinearLayoutManager(this)
         binding.rvMyQuizzes.adapter = quizAdapter
+
+        // Search functionality – title only
+        binding.etSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                filterQuizzes(s.toString())
+            }
+        })
+
         loadMyQuizzes()
     }
 
@@ -50,18 +63,39 @@ class CreatorDashboardActivity : AppCompatActivity() {
         val uid = auth.currentUser?.uid ?: return
         db.collection("quizzes").whereEqualTo("creatorId", uid).get()
             .addOnSuccessListener { docs ->
-                quizList.clear()
+                allQuizzes.clear()
                 for (doc in docs) {
                     val quiz = doc.toObject(Quiz::class.java)
                     quiz.quizId = doc.id
-                    quizList.add(quiz)
+                    allQuizzes.add(quiz)
                 }
-                quizAdapter.updateList(quizList)
-                if (quizList.isEmpty()) Toast.makeText(this, "No quizzes created yet", Toast.LENGTH_SHORT).show()
+                filterQuizzes(binding.etSearch.text.toString())
+                if (allQuizzes.isEmpty()) {
+                    Toast.makeText(this, "No quizzes created yet", Toast.LENGTH_SHORT).show()
+                }
             }
             .addOnFailureListener {
                 Toast.makeText(this, "Failed to load quizzes: ${it.message}", Toast.LENGTH_SHORT).show()
             }
+    }
+
+    private fun filterQuizzes(query: String) {
+        displayedQuizzes.clear()
+        if (query.isEmpty()) {
+            displayedQuizzes.addAll(allQuizzes)
+        } else {
+            val lowerQuery = query.lowercase()
+            for (quiz in allQuizzes) {
+                // Search by title only
+                if (quiz.title.lowercase().contains(lowerQuery)) {
+                    displayedQuizzes.add(quiz)
+                }
+            }
+        }
+        quizAdapter.updateList(displayedQuizzes)
+        if (displayedQuizzes.isEmpty() && query.isNotEmpty()) {
+            Toast.makeText(this, "No matching quizzes found", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun showDeleteConfirmation(quiz: Quiz) {

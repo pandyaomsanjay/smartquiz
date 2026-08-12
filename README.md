@@ -129,7 +129,7 @@ SmartQuiz/
 │   │   │   │   ├── AdminAnnouncementsActivity.kt
 │   │   │   │   ├── AdminCheatLogsActivity.kt
 │   │   │   │   ├── QuizStatsActivity.kt
-│   │   │   │   ├── QuizInstructionsActivity.kt
+│   │   │   │   ├── QuizAttemptActivity.kt
 │   │   │   │   ├── QuizDetailsActivity.kt
 │   │   │   │   ├── FeedbackActivity.kt
 │   │   │   │   ├── models/                        # Data classes

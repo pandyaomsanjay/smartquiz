@@ -14,4 +14,16 @@
         <item>Checkbox (Multiple Choice)</item>
         <item>Descriptive (Fill in the blanks)</item>
     </string-array>
+
+    <string-array name="sort_options">
+        <item>Name A → Z</item>
+        <item>Name Z → A</item>
+        <item>Highest Score</item>
+        <item>Lowest Score</item>
+        <item>Latest Submission</item>
+        <item>Earliest Submission</item>
+        <item>Longest Duration</item>
+        <item>Shortest Duration</item>
+    </string-array>
+
 </resources>

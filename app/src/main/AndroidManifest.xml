@@ -12,6 +12,7 @@
     <queries>
         <package android:name="com.google.android.gms" />
         <package android:name="com.android.vending" />
+
         <intent>
             <action android:name="com.google.android.gms.auth.api.signin.SERVICE_CONFIG_UPDATED" />
         </intent>
@@ -57,6 +58,9 @@
             android:name=".QuizDetailsActivity"
             android:exported="false" />
         <activity
+            android:name=".QuizInstructionsActivity"
+            android:exported="false" />
+        <activity
             android:name=".SubmissionSuccessActivity"
             android:exported="false" />
         <activity
@@ -82,12 +86,11 @@
             android:name=".QuizStatsActivity"
             android:exported="false" />
         <activity
-            android:name=".QuizInstructionsActivity"
+            android:name=".QuizAttemptActivity"
             android:exported="false" />
         <activity
             android:name=".SettingsActivity"
             android:exported="false" />
-
         <activity
             android:name=".UserProfileActivity"
             android:exported="false" />
@@ -99,9 +102,6 @@
             android:exported="false" />
         <activity
             android:name=".ResultActivity"
-            android:exported="false" />
-        <activity
-            android:name=".QuizAttemptActivity"
             android:exported="false" />
         <activity
             android:name=".JoinQuizActivity"
@@ -123,6 +123,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
@@ -135,6 +136,19 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <activity
+            android:name=".CreatorAnalyticsActivity"
+            android:label="Creator Analytics"
+            android:parentActivityName=".QuizStatsActivity" />
+        <activity
+            android:name=".ProfileSetupActivity"
+            android:label="Set up Profile"
+            android:parentActivityName=".SignupActivity" />
+        <activity
+            android:name=".TutorialActivity"
+            android:label="Tutorial"
+            android:parentActivityName=".SettingsActivity" />
     </application>
 
 </manifest>

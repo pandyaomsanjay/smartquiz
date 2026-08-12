@@ -2,6 +2,8 @@ package com.smartquiz
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -10,6 +12,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import com.smartquiz.databinding.ActivitySignupBinding
@@ -40,35 +43,45 @@ class SignupActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
 
-        // Configure Google Sign-In
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(getString(R.string.default_web_client_id))
             .requestEmail()
             .build()
         googleSignInClient = GoogleSignIn.getClient(this, gso)
 
-        // Email/Password Sign Up
         binding.btnSignup.setOnClickListener {
-            val name = binding.etName.text.toString().trim()
             val email = binding.etEmail.text.toString().trim()
             val password = binding.etPassword.text.toString().trim()
+            val confirmPassword = binding.etConfirmPassword.text.toString().trim()
 
-            if (name.isEmpty() || email.isEmpty() || password.isEmpty()) {
+            if (email.isEmpty() || password.isEmpty()) {
                 Toast.makeText(this, "Please fill all fields", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (password != confirmPassword) {
+                Toast.makeText(this, "Passwords do not match", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (password.length < 6) {
+                Toast.makeText(this, "Password must be at least 6 characters", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
             auth.createUserWithEmailAndPassword(email, password)
                 .addOnCompleteListener { task ->
                     if (task.isSuccessful) {
-                        saveUserToFirestore(name, email)
+                        val placeholderName = email.substringBefore("@")
+                        saveUserToFirestore(placeholderName, email)
                     } else {
-                        Toast.makeText(this, "Signup failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                        val errorMessage = when (task.exception) {
+                            is FirebaseAuthUserCollisionException -> "This email is already registered. Please login."
+                            else -> "Signup failed: ${task.exception?.message}"
+                        }
+                        Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
                     }
                 }
         }
 
-        // Google Sign Up button
         binding.btnGoogleSignUp.setOnClickListener {
             googleSignInClient.signOut().addOnCompleteListener {
                 val signInIntent = googleSignInClient.signInIntent
@@ -78,7 +91,17 @@ class SignupActivity : AppCompatActivity() {
 
         binding.tvLogin.setOnClickListener {
             startActivity(Intent(this, LoginActivity::class.java))
-            finish()
+            safeFinish()
+        }
+    }
+
+    private fun safeFinish() {
+        if (!isFinishing && !isDestroyed) {
+            Handler(Looper.getMainLooper()).post {
+                if (!isFinishing && !isDestroyed) {
+                    finish()
+                }
+            }
         }
     }
 
@@ -89,15 +112,13 @@ class SignupActivity : AppCompatActivity() {
                 if (task.isSuccessful) {
                     val user = auth.currentUser
                     if (task.result.additionalUserInfo?.isNewUser == true) {
-                        // New user – save to Firestore
-                        val name = user?.displayName ?: "User"
+                        val name = user?.displayName ?: user?.email?.substringBefore("@") ?: "User"
                         val email = user?.email ?: ""
                         saveUserToFirestore(name, email)
                     } else {
-                        // Existing user – just go to home
                         Toast.makeText(this, "Welcome back! You are now logged in.", Toast.LENGTH_SHORT).show()
                         startActivity(Intent(this, HomeDashboardActivity::class.java))
-                        finish()
+                        safeFinish()
                     }
                 } else {
                     Toast.makeText(this, "Google sign up failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
@@ -106,7 +127,10 @@ class SignupActivity : AppCompatActivity() {
     }
 
     private fun saveUserToFirestore(name: String, email: String) {
-        val uid = auth.currentUser?.uid ?: return
+        val uid = auth.currentUser?.uid ?: run {
+            Toast.makeText(this, "Authentication failed. Please try again.", Toast.LENGTH_SHORT).show()
+            return
+        }
         val userMap = hashMapOf(
             "uid" to uid,
             "name" to name,
@@ -120,8 +144,9 @@ class SignupActivity : AppCompatActivity() {
         )
         db.collection("users").document(uid).set(userMap)
             .addOnSuccessListener {
-                startActivity(Intent(this, HomeDashboardActivity::class.java))
-                finish()
+                // Go to Profile Setup so user can set/change name and avatar
+                startActivity(Intent(this, ProfileSetupActivity::class.java))
+                safeFinish()
             }
             .addOnFailureListener { e ->
                 Toast.makeText(this, "Failed to save user: ${e.message}", Toast.LENGTH_SHORT).show()

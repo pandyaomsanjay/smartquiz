@@ -15,6 +15,7 @@
         app:title="Settings"
         app:titleTextColor="@color/white" />
 
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -28,6 +29,14 @@
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginBottom="16dp" />
+        <Button
+            android:id="@+id/btnTutorial"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Tutorial"
+            android:layout_marginBottom="8dp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:icon="@drawable/ic_help" />
 
         <Button
             android:id="@+id/btnChangePassword"

@@ -23,11 +23,28 @@
         android:textStyle="bold"
         android:layout_margin="16dp" />
 
+    <!-- Search Bar (title only) -->
+    <com.google.android.material.textfield.TextInputLayout
+        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Search by title"
+        app:endIconMode="clear_text"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="8dp">
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvMyQuizzes"
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etSearch"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:padding="8dp" />
+            android:layout_height="wrap_content"
+            android:inputType="text"
+            android:maxLines="1" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvMyQuizzes"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="8dp" />
 
 </LinearLayout>

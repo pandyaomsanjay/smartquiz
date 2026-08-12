@@ -15,6 +15,7 @@
     <!-- Required by Material theme -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="warning">#F59E0B</color>
 
 
     <color name="surface_card">#FFFFFF</color>

@@ -134,7 +134,7 @@ class AdminCheatLogsActivity : AppCompatActivity() {
                 Log.d(TAG_LOG, "Successfully fetched ${docs.size()} logs")
                 val fetchedLogs = docs.toObjects(CheatLog::class.java)
                 updateList(fetchedLogs)
-                
+
                 if (fetchedLogs.isEmpty()) {
                     val msg = if (quizId == null) "No logs found for your quizzes" else "No logs for this quiz"
                     Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
@@ -142,7 +142,7 @@ class AdminCheatLogsActivity : AppCompatActivity() {
             }
             .addOnFailureListener { e ->
                 Log.e(TAG_LOG, "Firestore Query Failed (quizId=$quizId, isAdmin=$isAdmin, uid=$uid)", e)
-                
+
                 val message = when {
                     e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION ->
                         "Missing Firestore index. Please check Logcat for the link to create it."
@@ -151,10 +151,10 @@ class AdminCheatLogsActivity : AppCompatActivity() {
                     else -> "Error fetching logs: ${e.message}"
                 }
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                
+
                 // If specific quiz query failed with permission denied, try to explain why
                 if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED && quizId != null) {
-                     Log.e(TAG_LOG, "Hint: Check if the 'cheat_logs' documents in quiz '$quizId' have the 'creatorId' field set to '$uid'")
+                    Log.e(TAG_LOG, "Hint: Check if the 'cheat_logs' documents in quiz '$quizId' have the 'creatorId' field set to '$uid'")
                 }
             }
     }

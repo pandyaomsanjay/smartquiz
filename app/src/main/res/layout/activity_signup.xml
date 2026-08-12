@@ -36,20 +36,7 @@
             android:textColor="@color/on_surface_variant"
             android:layout_marginBottom="32dp" />
 
-        <!-- Full Name -->
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Full Name"
-            android:layout_marginBottom="16dp">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etName"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textPersonName"
-                android:textSize="16sp" />
-        </com.google.android.material.textfield.TextInputLayout>
+        <!-- Full Name - REMOVED -->
 
         <!-- Email -->
         <com.google.android.material.textfield.TextInputLayout

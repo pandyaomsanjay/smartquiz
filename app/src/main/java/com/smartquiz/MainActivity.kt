@@ -12,6 +12,8 @@ import com.smartquiz.databinding.ActivityMainBinding
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var auth: FirebaseAuth
+    private var authListener: FirebaseAuth.AuthStateListener? = null
+    private var isNavigated = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Apply splash theme to avoid white flash
@@ -24,18 +26,50 @@ class MainActivity : AppCompatActivity() {
 
         // Load animations
         val fadeIn = AnimationUtils.loadAnimation(this, android.R.anim.fade_in)
-        val scaleUp = AnimationUtils.loadAnimation(this, R.anim.scale_up) // custom anim
+        val scaleUp = AnimationUtils.loadAnimation(this, R.anim.scale_up)
         binding.logoImageView.startAnimation(fadeIn)
         binding.appNameTextView.startAnimation(scaleUp)
 
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (auth.currentUser != null) {
-                startActivity(Intent(this, HomeDashboardActivity::class.java))
-            } else {
-                startActivity(Intent(this, LoginActivity::class.java))
+        // Set up auth state listener
+        authListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+            val user = firebaseAuth.currentUser
+            runOnUiThread {
+                if (!isNavigated) {
+                    isNavigated = true
+                    if (user != null) {
+                        startActivity(Intent(this, HomeDashboardActivity::class.java))
+                    } else {
+                        startActivity(Intent(this, LoginActivity::class.java))
+                    }
+                    overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+                    finish()
+                }
             }
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
-            finish()
-        }, 2000)
+        }
+
+        // Add the listener
+        auth.addAuthStateListener(authListener!!)
+
+        // Fallback: if the listener doesn't fire (e.g., due to a race condition),
+        // navigate after a timeout to ensure the app doesn't hang.
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isNavigated) {
+                isNavigated = true
+                val user = auth.currentUser
+                if (user != null) {
+                    startActivity(Intent(this, HomeDashboardActivity::class.java))
+                } else {
+                    startActivity(Intent(this, LoginActivity::class.java))
+                }
+                overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+                finish()
+            }
+        }, 3000) // 3 seconds timeout; splash animation is 2 seconds, extra for token refresh
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Remove the listener to avoid memory leaks
+        authListener?.let { auth.removeAuthStateListener(it) }
     }
 }

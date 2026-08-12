@@ -49,6 +49,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
@@ -74,11 +75,12 @@ dependencies {
 
     // Google Sign‑In
     implementation(libs.play.services.auth)
+    implementation("com.google.android.gms:play-services-auth:21.6.0")
 
     // Glide (images)
     implementation("com.github.bumptech.glide:glide:4.16.0")
     annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
-    
+
     // QR Code Generation
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
@@ -91,6 +93,7 @@ dependencies {
 
     // Excel export (optional, keep if needed)
     implementation("org.apache.poi:poi:5.2.3")
+
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
