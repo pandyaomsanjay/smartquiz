@@ -382,60 +382,151 @@ class QuizStatsActivity : AppCompatActivity() {
     }
 
     private fun showParticipantAnswers(participant: ParticipantStats) {
+        showProgressDialog("Loading answers...")
+
         db.collection("quizzes").document(quizId).collection("questions")
             .get()
             .addOnSuccessListener { questionDocs ->
                 val questionMap = mutableMapOf<String, Question>()
-                for (doc in questionDocs) {
+                val tasks = questionDocs.map { doc ->
                     val q = doc.toObject(Question::class.java)
                     q.questionId = doc.id
                     questionMap[q.questionId] = q
-                }
-                val answerDetails = StringBuilder()
-                for ((qId, answer) in participant.answers) {
-                    val q = questionMap[qId]
-                    if (q != null) {
-                        val display = when (q.questionType) {
-                            "radio" -> {
-                                val idx = when (answer) {
-                                    is Int -> answer
-                                    is Long -> answer.toInt()
-                                    else -> -1
-                                }
-                                if (idx in q.options.indices) q.options[idx] else "N/A"
-                            }
-                            "checkbox" -> {
-                                val indices = when (answer) {
-                                    is List<*> -> answer.mapNotNull {
-                                        when (it) {
-                                            is Int -> it
-                                            is Long -> it.toInt()
-                                            else -> null
-                                        }
+                    // Fetch correct answer from private subcollection
+                    db.collection("quizzes").document(quizId)
+                        .collection("questions_private").document(doc.id)
+                        .get()
+                        .continueWith { task ->
+                            if (task.isSuccessful && task.result.exists()) {
+                                val data = task.result
+                                when (q.questionType) {
+                                    "radio" -> q.correctAnswerIndex =
+                                        data.getLong("correctAnswerIndex")?.toInt() ?: -1
+                                    "checkbox" -> {
+                                        val rawList = data.get("correctAnswerIndices") as? List<*>
+                                        q.correctAnswerIndices = rawList?.mapNotNull {
+                                            when (it) {
+                                                is Int -> it
+                                                is Long -> it.toInt()
+                                                else -> null
+                                            }
+                                        } ?: emptyList()
                                     }
-                                    else -> emptyList()
+                                    "descriptive" -> q.correctAnswerText =
+                                        data.getString("correctAnswerText") ?: ""
                                 }
-                                if (indices.isNotEmpty()) {
-                                    indices.mapNotNull { if (it in q.options.indices) q.options[it] else null }
-                                        .joinToString(", ")
-                                } else "None selected"
                             }
-                            "descriptive" -> answer as? String ?: "N/A"
-                            else -> "N/A"
+                            q
                         }
-                        answerDetails.append("Q: ${q.text}\nAnswer: $display\n\n")
-                    } else {
-                        answerDetails.append("Q: (unknown) $qId\nAnswer: $answer\n\n")
-                    }
                 }
-                AlertDialog.Builder(this)
-                    .setTitle("${participant.name}'s Answers")
-                    .setMessage(answerDetails.toString())
-                    .setPositiveButton("OK", null)
-                    .show()
+                Tasks.whenAllComplete(tasks)
+                    .addOnCompleteListener {
+                        val answerDetails = StringBuilder()
+                        for ((qId, answer) in participant.answers) {
+                            val q = questionMap[qId]
+                            if (q != null) {
+                                // Determine correctness
+                                val isCorrect = when (q.questionType) {
+                                    "radio" -> {
+                                        val userIdx = when (answer) {
+                                            is Int -> answer
+                                            is Long -> answer.toInt()
+                                            else -> -1
+                                        }
+                                        userIdx == q.correctAnswerIndex
+                                    }
+                                    "checkbox" -> {
+                                        val userIndices = when (answer) {
+                                            is List<*> -> answer.mapNotNull {
+                                                when (it) {
+                                                    is Int -> it
+                                                    is Long -> it.toInt()
+                                                    else -> null
+                                                }
+                                            }
+                                            else -> emptyList()
+                                        }
+                                        userIndices.sorted() == q.correctAnswerIndices.sorted()
+                                    }
+                                    "descriptive" -> {
+                                        val userText = (answer as? String) ?: ""
+                                        userText.trim().equals(q.correctAnswerText.trim(), ignoreCase = true)
+                                    }
+                                    else -> false
+                                }
+
+                                // Build user answer string
+                                val userAnswerStr = when (q.questionType) {
+                                    "radio" -> {
+                                        val idx = when (answer) {
+                                            is Int -> answer
+                                            is Long -> answer.toInt()
+                                            else -> -1
+                                        }
+                                        if (idx in q.options.indices) q.options[idx] else "N/A"
+                                    }
+                                    "checkbox" -> {
+                                        val indices = when (answer) {
+                                            is List<*> -> answer.mapNotNull {
+                                                when (it) {
+                                                    is Int -> it
+                                                    is Long -> it.toInt()
+                                                    else -> null
+                                                }
+                                            }
+                                            else -> emptyList()
+                                        }
+                                        if (indices.isNotEmpty()) {
+                                            indices.mapNotNull { if (it in q.options.indices) q.options[it] else null }
+                                                .joinToString(", ")
+                                        } else "None selected"
+                                    }
+                                    "descriptive" -> (answer as? String) ?: "N/A"
+                                    else -> "N/A"
+                                }
+
+                                // Build correct answer string
+                                val correctAnswerStr = when (q.questionType) {
+                                    "radio" -> if (q.correctAnswerIndex in q.options.indices)
+                                        q.options[q.correctAnswerIndex] else "N/A"
+                                    "checkbox" -> {
+                                        if (q.correctAnswerIndices.isNotEmpty()) {
+                                            q.correctAnswerIndices.mapNotNull {
+                                                if (it in q.options.indices) q.options[it] else null
+                                            }.joinToString(", ")
+                                        } else "None"
+                                    }
+                                    "descriptive" -> q.correctAnswerText
+                                    else -> ""
+                                }
+
+                                // Format output
+                                val symbol = if (isCorrect) "✅" else "❌"
+                                answerDetails.append("Q: ${q.text}\n")
+                                answerDetails.append("   Your Answer: $userAnswerStr $symbol\n")
+                                if (!isCorrect) {
+                                    answerDetails.append("   Correct Answer: $correctAnswerStr\n")
+                                }
+                                answerDetails.append("\n")
+                            } else {
+                                answerDetails.append("Q: (unknown) $qId\nAnswer: $answer\n\n")
+                            }
+                        }
+                        hideProgressDialog()
+                        AlertDialog.Builder(this)
+                            .setTitle("${participant.name}'s Answers")
+                            .setMessage(answerDetails.toString())
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                    .addOnFailureListener { e ->
+                        hideProgressDialog()
+                        Toast.makeText(this, "Failed to load correct answers: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
             }
-            .addOnFailureListener {
-                Toast.makeText(this, "Failed to load questions", Toast.LENGTH_SHORT).show()
+            .addOnFailureListener { e ->
+                hideProgressDialog()
+                Toast.makeText(this, "Failed to load questions: ${e.message}", Toast.LENGTH_SHORT).show()
             }
     }
 
@@ -603,11 +694,10 @@ class QuizStatsActivity : AppCompatActivity() {
     // ---------- EXPORT HELPERS ----------
     private fun getSortedExportList(): List<ParticipantStats> {
         // Use filteredList (already sorted in UI) but ensure names are resolved
-        // filteredList already has resolved names from the listener
         return filteredList.sortedBy { it.name.lowercase(Locale.getDefault()) }
     }
 
-    // ---------- Question Paper PDF (unchanged) ----------
+    // ---------- Question Paper PDF (FIXED) ----------
     private fun showQuestionPaperOptions() {
         val options = arrayOf("📄 Question Paper Only", "📝 Question Paper with Answers")
         AlertDialog.Builder(this)
@@ -622,6 +712,7 @@ class QuizStatsActivity : AppCompatActivity() {
             .show()
     }
 
+    // FIXED: deduplicate questions by ID before processing
     private fun generateQuestionPaperPdf(includeAnswers: Boolean) {
         if (quizId.isEmpty()) {
             Toast.makeText(this, "Quiz ID missing", Toast.LENGTH_SHORT).show()
@@ -634,12 +725,17 @@ class QuizStatsActivity : AppCompatActivity() {
             .collection("questions")
             .get()
             .addOnSuccessListener { docs ->
-                val questions = mutableListOf<Question>()
+                // Use a Map to deduplicate by questionId (just in case)
+                val uniqueQuestions = mutableMapOf<String, Question>()
                 for (doc in docs) {
                     val q = doc.toObject(Question::class.java)
                     q.questionId = doc.id
-                    questions.add(q)
+                    // Only add if not already present (shouldn't happen, but safe)
+                    if (!uniqueQuestions.containsKey(q.questionId)) {
+                        uniqueQuestions[q.questionId] = q
+                    }
                 }
+                val questions = uniqueQuestions.values.toList()
                 if (questions.isEmpty()) {
                     Toast.makeText(this, "No questions found", Toast.LENGTH_SHORT).show()
                     hideProgressDialog()
@@ -655,7 +751,8 @@ class QuizStatsActivity : AppCompatActivity() {
                                 if (task.isSuccessful && task.result.exists()) {
                                     val data = task.result
                                     when (q.questionType) {
-                                        "radio" -> q.correctAnswerIndex = data.getLong("correctAnswerIndex")?.toInt() ?: 0
+                                        "radio" -> q.correctAnswerIndex =
+                                            data.getLong("correctAnswerIndex")?.toInt() ?: 0
                                         "checkbox" -> {
                                             val rawList = data.get("correctAnswerIndices") as? List<*>
                                             q.correctAnswerIndices = rawList?.mapNotNull {
@@ -666,7 +763,8 @@ class QuizStatsActivity : AppCompatActivity() {
                                                 }
                                             } ?: emptyList()
                                         }
-                                        "descriptive" -> q.correctAnswerText = data.getString("correctAnswerText") ?: ""
+                                        "descriptive" -> q.correctAnswerText =
+                                            data.getString("correctAnswerText") ?: ""
                                     }
                                 }
                                 q
@@ -694,54 +792,67 @@ class QuizStatsActivity : AppCompatActivity() {
             }
     }
 
+    // FIXED: clean page handling, each question drawn once
     private fun generatePdfWithQuestionsAndAnswers(questions: List<Question>, includeAnswers: Boolean) {
         val document = PdfDocument()
         val paint = Paint()
-        var page = createNewQuestionPaperPage(document, paint)
-        var canvas = page.canvas
-        var yPos = 100f
-
-        val pageWidth = page.info.pageWidth
+        val pageWidth = 595   // A4 portrait width in points
+        val pageHeight = 842  // A4 portrait height
         val margin = 50f
         val lineHeight = 20f
+        var yPos = margin + 20f
+        var currentPageNumber = 0
 
-        paint.textSize = 20f
-        paint.isFakeBoldText = true
-        val title = if (includeAnswers) "Question Paper with Answers" else "Question Paper"
-        canvas.drawText(title, margin, 50f, paint)
-        paint.isFakeBoldText = false
-        paint.textSize = 14f
-        yPos = 90f
+        // Helper to start a new page with consistent header
+        fun startNewPage(continued: Boolean = false): PdfDocument.Page {
+            currentPageNumber++
+            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+            val page = document.startPage(pageInfo)
+            val canvas = page.canvas
 
-        paint.textSize = 14f
-        paint.isFakeBoldText = true
-        canvas.drawText("Quiz: $quizTitle", margin, yPos, paint)
-        yPos += 20f
-        paint.isFakeBoldText = false
-        paint.textSize = 12f
+            paint.color = 0xFF000000.toInt()
+            paint.textSize = 20f
+            paint.isFakeBoldText = true
+            canvas.drawText(if (includeAnswers) "Question Paper with Answers" else "Question Paper", margin, 50f, paint)
+            paint.isFakeBoldText = false
 
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-        canvas.drawText("Generated: ${dateFormat.format(Date())}", margin, yPos, paint)
-        yPos += 30f
+            paint.textSize = 14f
+            paint.isFakeBoldText = true
+            canvas.drawText("Quiz: $quizTitle", margin, 80f, paint)
+            paint.isFakeBoldText = false
+            paint.textSize = 12f
 
-        val totalMarks = questions.sumOf { it.points }
-        canvas.drawText("Total Marks: $totalMarks", margin, yPos, paint)
-        yPos += 30f
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            canvas.drawText("Generated: ${dateFormat.format(Date())}", margin, 100f, paint)
 
-        for ((index, q) in questions.withIndex()) {
-            if (yPos + 100f > page.info.pageHeight - margin) {
-                document.finishPage(page)
-                page = createNewQuestionPaperPage(document, paint)
-                canvas = page.canvas
-                yPos = margin + 20f
-                paint.textSize = 14f
-                paint.isFakeBoldText = true
-                canvas.drawText("Quiz: $quizTitle (continued)", margin, yPos, paint)
-                yPos += 30f
-                paint.isFakeBoldText = false
+            val totalMarks = questions.sumOf { it.points }
+            canvas.drawText("Total Marks: $totalMarks", margin, 120f, paint)
+
+            if (continued) {
                 paint.textSize = 12f
+                paint.isFakeBoldText = true
+                canvas.drawText("(continued)", margin + 200f, 80f, paint)
+                paint.isFakeBoldText = false
             }
 
+            return page
+        }
+
+        var currentPage = startNewPage(continued = false)
+        var canvas = currentPage.canvas
+        yPos = 150f // start below header
+
+        for ((index, q) in questions.withIndex()) {
+            // Check if we need a new page
+            if (yPos + 100f > pageHeight - margin) {
+                document.finishPage(currentPage)
+                currentPage = startNewPage(continued = true)
+                canvas = currentPage.canvas
+                yPos = 150f
+            }
+
+            paint.color = 0xFF000000.toInt()
+            paint.textSize = 12f
             val qText = "${index + 1}. ${q.text}"
             val lines = splitTextForPdf(qText, paint, pageWidth - 2 * margin)
             for (line in lines) {
@@ -766,39 +877,33 @@ class QuizStatsActivity : AppCompatActivity() {
                 when (q.questionType) {
                     "radio" -> {
                         val correctLetter = ('A' + q.correctAnswerIndex).toString()
-                        paint.textSize = 11f
                         paint.color = 0xFF4CAF50.toInt()
                         canvas.drawText("   Correct Answer: $correctLetter", margin + 20f, yPos, paint)
-                        yPos += lineHeight + 8f
+                        yPos += lineHeight + 4f
                     }
                     "checkbox" -> {
                         val correctLetters = q.correctAnswerIndices.map { ('A' + it).toString() }
                         val lettersStr = if (correctLetters.isNotEmpty()) correctLetters.joinToString(", ") else "None"
-                        paint.textSize = 11f
                         paint.color = 0xFF4CAF50.toInt()
                         canvas.drawText("   Correct Options: $lettersStr", margin + 20f, yPos, paint)
-                        yPos += lineHeight + 8f
+                        yPos += lineHeight + 4f
                     }
                     "descriptive" -> {
-                        paint.textSize = 11f
                         paint.color = 0xFF4CAF50.toInt()
                         canvas.drawText("   Correct Answer: ${q.correctAnswerText}", margin + 20f, yPos, paint)
-                        yPos += lineHeight + 8f
+                        yPos += lineHeight + 4f
                     }
                 }
                 paint.color = 0xFF000000.toInt()
-                paint.textSize = 12f
             }
 
-            paint.textSize = 11f
             paint.color = 0xFF2196F3.toInt()
             canvas.drawText("   Points: ${q.points}", margin + 20f, yPos, paint)
-            yPos += lineHeight + 10f
+            yPos += lineHeight + 8f
             paint.color = 0xFF000000.toInt()
-            paint.textSize = 12f
         }
 
-        document.finishPage(page)
+        document.finishPage(currentPage)
 
         runOnUiThread {
             hideProgressDialog()
@@ -828,14 +933,7 @@ class QuizStatsActivity : AppCompatActivity() {
         }
     }
 
-    private fun createNewQuestionPaperPage(document: PdfDocument, paint: Paint): PdfDocument.Page {
-        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, document.pages.size + 1).create()
-        val page = document.startPage(pageInfo)
-        paint.color = 0xFF000000.toInt()
-        paint.textSize = 12f
-        return page
-    }
-
+    // Improved text wrapping helper
     private fun splitTextForPdf(text: String, paint: Paint, maxWidth: Float): List<String> {
         val words = text.split(" ")
         val lines = mutableListOf<String>()

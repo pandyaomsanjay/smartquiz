@@ -47,6 +47,10 @@ class CreatorDashboardActivity : AppCompatActivity() {
         binding.rvMyQuizzes.layoutManager = LinearLayoutManager(this)
         binding.rvMyQuizzes.adapter = quizAdapter
 
+        binding.btnDraftQuizzes.setOnClickListener {
+            startActivity(Intent(this, DraftQuizzesActivity::class.java))
+        }
+
         // Search functionality – title only
         binding.etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}

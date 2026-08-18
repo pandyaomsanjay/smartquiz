@@ -27,6 +27,9 @@ data class Quiz(
     val timePerQuestionSeconds: Long = 0,
     // Randomization mode
     val randomizationMode: String = "FIXED_ORDER",  // "FIXED_ORDER", "RANDOM_QUESTION_ORDER", "RANDOM_QUESTION_AND_OPTION_ORDER"
-    // NEW: Score visibility for participants
-    val showScoreAfterSubmission: Boolean = true
+    // Score visibility
+    val showScoreAfterSubmission: Boolean = true,
+    // Draft system
+    val status: String = "DRAFT",          // "DRAFT", "PUBLISHED", "EXPIRED", "ARCHIVED"
+    val updatedAt: Long = 0L               // Last update timestamp
 ) : Serializable

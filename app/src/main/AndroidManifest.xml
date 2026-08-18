@@ -149,6 +149,10 @@
             android:name=".TutorialActivity"
             android:label="Tutorial"
             android:parentActivityName=".SettingsActivity" />
+        <activity
+            android:name=".DraftQuizzesActivity"
+            android:label="Draft Quizzes"
+            android:parentActivityName=".CreatorDashboardActivity" />
     </application>
 
 </manifest>

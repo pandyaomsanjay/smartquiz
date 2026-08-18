@@ -377,6 +377,15 @@
             android:layout_marginTop="16dp"
             android:visibility="gone" />
 
+        <Button
+            android:id="@+id/btnSaveDraft"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="16dp"
+            android:text="Save as Draft"
+            android:backgroundTint="@color/accent"
+            android:textAppearance="?attr/textAppearanceButton" />
+
         <!-- Save Quiz Button -->
         <Button
             android:id="@+id/btnSaveQuiz"

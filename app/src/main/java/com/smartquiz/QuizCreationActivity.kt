@@ -13,12 +13,14 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.smartquiz.databinding.ActivityQuizCreationBinding
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.random.Random
 
 class QuizCreationActivity : AppCompatActivity() {
+
     private lateinit var binding: ActivityQuizCreationBinding
     private lateinit var db: FirebaseFirestore
     private lateinit var auth: FirebaseAuth
@@ -27,10 +29,19 @@ class QuizCreationActivity : AppCompatActivity() {
     private val calendar = Calendar.getInstance()
     private var deadlineTimestamp = 0L
 
-    // Debounce handler for title validation
+    // Draft mode flags
+    private var isEditingDraft = false
+    private var draftQuizId: String? = null
+    private var isDraftMode = false
+    private var originalCreatedAt: Long = 0L  // store original creation time
+
+    // Debounce for title uniqueness check
     private val titleCheckHandler = Handler(Looper.getMainLooper())
     private var titleCheckRunnable: Runnable? = null
 
+    // ------------------------------------------------------------------------
+    // LIFECYCLE
+    // ------------------------------------------------------------------------
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityQuizCreationBinding.inflate(layoutInflater)
@@ -39,16 +50,37 @@ class QuizCreationActivity : AppCompatActivity() {
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.setHomeAsUpIndicator(R.drawable.ic_back)
-        supportActionBar?.title = "Create Quiz"
 
         db = FirebaseFirestore.getInstance()
         auth = FirebaseAuth.getInstance()
 
+        // Detect if editing a draft
+        draftQuizId = intent.getStringExtra("quizId")
+        isDraftMode = intent.getBooleanExtra("isDraft", false)
+        isEditingDraft = draftQuizId != null && isDraftMode
+
+        if (isEditingDraft) {
+            supportActionBar?.title = "Edit Draft"
+            loadDraftData(draftQuizId!!)
+        } else {
+            supportActionBar?.title = "Create Quiz"
+            // Default settings for new quiz
+            binding.radioPrivate.isChecked = true
+            binding.radioFixedOrder.isChecked = true
+            binding.switchShowScore.isChecked = true
+            binding.switchNegativeMarking.isChecked = false
+            binding.etNegativeValue.setText("0.25")
+            binding.etTotalTime.setText("00:30:00")
+            binding.etPerQuestionTime.setText("00:01:00")
+        }
+
+        // UI listeners
         binding.etDeadline.setOnClickListener { showDateTimePicker() }
         binding.btnAddQuestion.setOnClickListener { showAddQuestionDialog(null) }
+        binding.btnSaveDraft.setOnClickListener { saveQuizAsDraft() }
         binding.btnSaveQuiz.setOnClickListener { showSaveConfirmation() }
 
-        // Timer type selection – show/hide appropriate input
+        // Timer type visibility
         binding.radioGroupTimerType.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.radioNoTimer -> {
@@ -65,11 +97,10 @@ class QuizCreationActivity : AppCompatActivity() {
                 }
             }
         }
-        // Default: No Timer selected, so hide both
         binding.inputLayoutTotalTime.visibility = View.GONE
         binding.inputLayoutPerQuestionTime.visibility = View.GONE
 
-        // Setup RecyclerView for preview
+        // RecyclerView for questions
         adapter = QuestionPreviewAdapter(
             questions = questionsList,
             onEditClick = { question -> showAddQuestionDialog(question) },
@@ -77,18 +108,11 @@ class QuizCreationActivity : AppCompatActivity() {
         )
         binding.rvQuestionPreview.layoutManager = LinearLayoutManager(this)
         binding.rvQuestionPreview.adapter = adapter
-
         updateQuestionsCount()
-        binding.radioPrivate.isChecked = true
-        // Default randomization mode: fixed order
-        binding.radioFixedOrder.isChecked = true
-        binding.switchShowScore.isChecked = true
 
-        // Title validation on focus change
+        // Title uniqueness validation on focus lost
         binding.etQuizTitle.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) {
-                checkTitleDuplicate()
-            }
+            if (!hasFocus) checkTitleDuplicate()
         }
     }
 
@@ -108,6 +132,423 @@ class QuizCreationActivity : AppCompatActivity() {
         }
     }
 
+    // ------------------------------------------------------------------------
+    // LOAD DRAFT DATA
+    // ------------------------------------------------------------------------
+    private fun loadDraftData(quizId: String) {
+        db.collection("quizzes").document(quizId).get()
+            .addOnSuccessListener { doc ->
+                if (!doc.exists()) {
+                    Toast.makeText(this, "Draft not found", Toast.LENGTH_SHORT).show()
+                    finish()
+                    return@addOnSuccessListener
+                }
+                val quiz = doc.toObject(Quiz::class.java) ?: run {
+                    Toast.makeText(this, "Failed to parse draft", Toast.LENGTH_SHORT).show()
+                    finish()
+                    return@addOnSuccessListener
+                }
+
+                // Save original creation time for later updates
+                originalCreatedAt = quiz.createdAt
+
+                // Populate UI
+                binding.etQuizTitle.setText(quiz.title)
+                binding.etQuizDescription.setText(quiz.description)
+                if (quiz.visibility == "public") binding.radioPublic.isChecked = true
+                else binding.radioPrivate.isChecked = true
+
+                deadlineTimestamp = quiz.deadline
+                if (quiz.deadline > 0) {
+                    val format = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                    binding.etDeadline.setText(format.format(Date(quiz.deadline)))
+                }
+
+                binding.switchNegativeMarking.isChecked = quiz.negativeMarking
+                binding.etNegativeValue.setText(quiz.negativeMarkingValue.toString())
+                binding.switchShowScore.isChecked = quiz.showScoreAfterSubmission
+
+                // Timer type
+                when (quiz.timerType) {
+                    "WHOLE_QUIZ" -> {
+                        binding.radioWholeQuizTimer.isChecked = true
+                        binding.inputLayoutTotalTime.visibility = View.VISIBLE
+                        binding.etTotalTime.setText(formatDuration(quiz.totalTimeSeconds))
+                    }
+                    "PER_QUESTION" -> {
+                        binding.radioPerQuestionTimer.isChecked = true
+                        binding.inputLayoutPerQuestionTime.visibility = View.VISIBLE
+                        binding.etPerQuestionTime.setText(formatDuration(quiz.timePerQuestionSeconds))
+                    }
+                    else -> binding.radioNoTimer.isChecked = true
+                }
+
+                // Randomization
+                when (quiz.randomizationMode) {
+                    "RANDOM_QUESTION_ORDER" -> binding.radioRandomQuestionOrder.isChecked = true
+                    "RANDOM_QUESTION_AND_OPTION_ORDER" -> binding.radioRandomQuestionAndOptionOrder.isChecked = true
+                    else -> binding.radioFixedOrder.isChecked = true
+                }
+
+                // Load questions with answers
+                loadQuestionsFromFirestore(quizId)
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Failed to load draft: ${e.message}", Toast.LENGTH_SHORT).show()
+                finish()
+            }
+    }
+
+    private fun loadQuestionsFromFirestore(quizId: String) {
+        db.collection("quizzes").document(quizId).collection("questions")
+            .get()
+            .addOnSuccessListener { questionDocs ->
+                val loadedQuestions = mutableListOf<Question>()
+                val tasks = questionDocs.map { qDoc ->
+                    val q = qDoc.toObject(Question::class.java).apply { questionId = qDoc.id }
+                    // Fetch private answers
+                    db.collection("quizzes").document(quizId)
+                        .collection("questions_private").document(qDoc.id)
+                        .get()
+                        .continueWith { task ->
+                            if (task.isSuccessful && task.result.exists()) {
+                                val data = task.result
+                                when (q.questionType) {
+                                    "radio" -> q.correctAnswerIndex =
+                                        data.getLong("correctAnswerIndex")?.toInt() ?: 0
+                                    "checkbox" -> {
+                                        val rawList = data.get("correctAnswerIndices") as? List<*>
+                                        q.correctAnswerIndices = rawList?.mapNotNull {
+                                            when (it) {
+                                                is Int -> it
+                                                is Long -> it.toInt()
+                                                else -> null
+                                            }
+                                        } ?: emptyList()
+                                    }
+                                    "descriptive" -> q.correctAnswerText =
+                                        data.getString("correctAnswerText") ?: ""
+                                }
+                            }
+                            q
+                        }
+                }
+                com.google.android.gms.tasks.Tasks.whenAllComplete(tasks)
+                    .addOnCompleteListener {
+                        tasks.forEach { task ->
+                            if (task.isSuccessful) task.result?.let { loadedQuestions.add(it) }
+                        }
+                        questionsList.clear()
+                        questionsList.addAll(loadedQuestions)
+                        updateQuestionsCount()
+                        adapter.updateList(questionsList)
+                    }
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Failed to load questions: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    // ------------------------------------------------------------------------
+    // SAVE AS DRAFT (CREATE or UPDATE)
+    // ------------------------------------------------------------------------
+    private fun saveQuizAsDraft() {
+        val quiz = buildQuiz(status = "DRAFT", generateCode = false)
+        if (quiz == null) {
+            Toast.makeText(this, "Failed to build quiz data", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val userId = auth.currentUser?.uid ?: run {
+            Toast.makeText(this, "Please log in", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // If editing an existing draft, UPDATE it – using a map to exclude createdAt
+        if (isEditingDraft && draftQuizId != null) {
+            val updateMap = buildUpdateMap(quiz, userId, status = "DRAFT")
+            // Do NOT include createdAt – it will stay unchanged
+
+            db.collection("quizzes").document(draftQuizId!!)
+                .set(updateMap, SetOptions.merge())
+                .addOnSuccessListener {
+                    saveQuestionsToFirestore(draftQuizId!!) {
+                        Toast.makeText(this, "Draft updated successfully", Toast.LENGTH_SHORT).show()
+                        goToDraftQuizzes()
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Toast.makeText(this, "Failed to update draft: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            return
+        }
+
+        // Otherwise, CREATE a new draft
+        val newQuiz = quiz.copy(
+            creatorId = userId,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+        db.collection("quizzes").add(newQuiz)
+            .addOnSuccessListener { docRef ->
+                draftQuizId = docRef.id
+                isEditingDraft = true
+                // Also store the creation time of this new draft
+                originalCreatedAt = newQuiz.createdAt
+                saveQuestionsToFirestore(docRef.id) {
+                    Toast.makeText(this, "Quiz saved as draft successfully", Toast.LENGTH_SHORT).show()
+                    goToDraftQuizzes()
+                }
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Failed to save draft: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    // ------------------------------------------------------------------------
+    // PUBLISH QUIZ (Convert draft to live)
+    // ------------------------------------------------------------------------
+    private fun saveQuiz() {
+        if (!validateQuiz()) return
+
+        val quiz = buildQuiz(status = "PUBLISHED", generateCode = true)
+        if (quiz == null) {
+            Toast.makeText(this, "Failed to build quiz data", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val userId = auth.currentUser?.uid ?: run {
+            Toast.makeText(this, "Please log in", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val updateMap = buildUpdateMap(quiz, userId, status = "PUBLISHED")
+        // Do NOT include createdAt – preserve original
+
+        val docRef = if (isEditingDraft && draftQuizId != null) {
+            db.collection("quizzes").document(draftQuizId!!)
+        } else {
+            db.collection("quizzes").document()
+        }
+
+        docRef.set(updateMap, SetOptions.merge())
+            .addOnSuccessListener {
+                val quizId = if (isEditingDraft && draftQuizId != null) draftQuizId!! else docRef.id
+                saveQuestionsToFirestore(quizId) {
+                    val message = if (quiz.visibility == "private")
+                        "Quiz saved! Code: ${quiz.quizCode}"
+                    else
+                        "Public quiz saved!"
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    val intent = Intent(this, QuizStatsActivity::class.java)
+                    intent.putExtra("quizId", quizId)
+                    intent.putExtra("quizTitle", quiz.title)
+                    startActivity(intent)
+                    safeFinish()
+                }
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Error publishing quiz: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    // Helper to build a map of fields to update (excluding createdAt)
+    private fun buildUpdateMap(quiz: Quiz, userId: String, status: String): MutableMap<String, Any> {
+        val map = mutableMapOf<String, Any>(
+            "title" to quiz.title,
+            "description" to quiz.description,
+            "visibility" to quiz.visibility,
+            "deadline" to quiz.deadline,
+            "negativeMarking" to quiz.negativeMarking,
+            "negativeMarkingValue" to quiz.negativeMarkingValue,
+            "hasImageQuestions" to quiz.hasImageQuestions,
+            "hasAudioQuestions" to quiz.hasAudioQuestions,
+            "hasVideoQuestions" to quiz.hasVideoQuestions,
+            "timerType" to quiz.timerType,
+            "totalTimeSeconds" to quiz.totalTimeSeconds,
+            "timePerQuestionSeconds" to quiz.timePerQuestionSeconds,
+            "randomizationMode" to quiz.randomizationMode,
+            "showScoreAfterSubmission" to quiz.showScoreAfterSubmission,
+            "status" to status,
+            "updatedAt" to System.currentTimeMillis(),
+            "totalQuestions" to questionsList.size,
+            "creatorId" to userId
+        )
+        // Only include quizCode if not empty
+        if (quiz.quizCode.isNotEmpty()) {
+            map["quizCode"] = quiz.quizCode
+        }
+        return map
+    }
+
+    // ------------------------------------------------------------------------
+    // BUILD QUIZ OBJECT (does not set createdAt; we handle it outside)
+    // ------------------------------------------------------------------------
+    private fun buildQuiz(status: String, generateCode: Boolean): Quiz? {
+        val title = binding.etQuizTitle.text.toString().trim()
+        if (status != "DRAFT" && title.isEmpty()) {
+            Toast.makeText(this, "Quiz title is required", Toast.LENGTH_SHORT).show()
+            return null
+        }
+        val description = binding.etQuizDescription.text.toString().trim()
+        val visibility = if (binding.radioPublic.isChecked) "public" else "private"
+        val negativeMarking = binding.switchNegativeMarking?.isChecked ?: false
+        val negativeMarkingValue = binding.etNegativeValue?.text.toString().toFloatOrNull() ?: 0.25f
+
+        val timerType = when (binding.radioGroupTimerType.checkedRadioButtonId) {
+            R.id.radioWholeQuizTimer -> "WHOLE_QUIZ"
+            R.id.radioPerQuestionTimer -> "PER_QUESTION"
+            else -> "NONE"
+        }
+        val totalTimeSeconds: Long
+        val perQuestionSeconds: Long
+        when (timerType) {
+            "WHOLE_QUIZ" -> {
+                totalTimeSeconds = parseDurationToSeconds(binding.etTotalTime.text.toString()) ?: 0
+                perQuestionSeconds = 0
+            }
+            "PER_QUESTION" -> {
+                perQuestionSeconds = parseDurationToSeconds(binding.etPerQuestionTime.text.toString()) ?: 0
+                totalTimeSeconds = 0
+            }
+            else -> {
+                totalTimeSeconds = 0
+                perQuestionSeconds = 0
+            }
+        }
+
+        val randomizationMode = when (binding.radioGroupRandomization.checkedRadioButtonId) {
+            R.id.radioRandomQuestionOrder -> "RANDOM_QUESTION_ORDER"
+            R.id.radioRandomQuestionAndOptionOrder -> "RANDOM_QUESTION_AND_OPTION_ORDER"
+            else -> "FIXED_ORDER"
+        }
+
+        val showScoreAfterSubmission = binding.switchShowScore.isChecked
+        val quizCode = if (generateCode && status != "DRAFT" && visibility == "private") {
+            generateUniqueQuizCode()
+        } else {
+            ""
+        }
+
+        return Quiz(
+            title = title,
+            description = description,
+            quizCode = quizCode,
+            creatorId = "", // set later
+            visibility = visibility,
+            createdAt = 0L, // we don't use this in updates; set explicitly on creation
+            totalQuestions = questionsList.size,
+            timerSeconds = 0,
+            deadline = deadlineTimestamp,
+            negativeMarking = negativeMarking,
+            negativeMarkingValue = negativeMarkingValue,
+            hasImageQuestions = questionsList.any { it.imageUrl.isNotEmpty() },
+            hasAudioQuestions = questionsList.any { it.audioUrl.isNotEmpty() },
+            hasVideoQuestions = questionsList.any { it.videoUrl.isNotEmpty() },
+            timerType = timerType,
+            totalTimeSeconds = totalTimeSeconds,
+            timePerQuestionSeconds = perQuestionSeconds,
+            randomizationMode = randomizationMode,
+            showScoreAfterSubmission = showScoreAfterSubmission,
+            status = status,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    // ------------------------------------------------------------------------
+    // SAVE QUESTIONS (overwrites old ones)
+    // ------------------------------------------------------------------------
+    private fun saveQuestionsToFirestore(quizId: String, onComplete: () -> Unit) {
+        // Step 1: Delete all existing questions (public + private)
+        db.collection("quizzes").document(quizId).collection("questions")
+            .get()
+            .addOnSuccessListener { querySnapshot ->
+                val batch = db.batch()
+                for (doc in querySnapshot.documents) {
+                    batch.delete(doc.reference)
+                    val privateRef = db.collection("quizzes").document(quizId)
+                        .collection("questions_private").document(doc.id)
+                    batch.delete(privateRef)
+                }
+                batch.commit().addOnSuccessListener {
+                    // Step 2: Write new questions
+                    writeQuestions(quizId, onComplete)
+                }.addOnFailureListener { e ->
+                    Toast.makeText(this, "Error clearing old questions: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Error fetching old questions: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    private fun writeQuestions(quizId: String, onComplete: () -> Unit) {
+        val batch = db.batch()
+        for (q in questionsList) {
+            val publicRef = db.collection("quizzes").document(quizId)
+                .collection("questions").document()
+            val publicData = mapOf(
+                "text" to q.text,
+                "options" to q.options,
+                "questionType" to q.questionType,
+                "points" to q.points,
+                "imageUrl" to q.imageUrl,
+                "audioUrl" to q.audioUrl,
+                "videoUrl" to q.videoUrl
+            )
+            batch.set(publicRef, publicData)
+
+            val privateRef = db.collection("quizzes").document(quizId)
+                .collection("questions_private").document(publicRef.id)
+            val privateData = when (q.questionType) {
+                "radio" -> mapOf("correctAnswerIndex" to q.correctAnswerIndex)
+                "checkbox" -> mapOf("correctAnswerIndices" to q.correctAnswerIndices)
+                "descriptive" -> mapOf("correctAnswerText" to q.correctAnswerText)
+                else -> emptyMap<String, Any>()
+            }
+            batch.set(privateRef, privateData)
+        }
+        batch.commit().addOnSuccessListener { onComplete() }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Error saving questions: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    // ------------------------------------------------------------------------
+    // HELPER: UNIQUE QUIZ CODE
+    // ------------------------------------------------------------------------
+    private fun generateUniqueQuizCode(): String {
+        // In production, check Firestore for uniqueness
+        return Random.nextInt(100000, 999999).toString()
+    }
+
+    // ------------------------------------------------------------------------
+    // BACK BUTTON HANDLING
+    // ------------------------------------------------------------------------
+    override fun onBackPressed() {
+        if (hasUnsavedChanges()) {
+            AlertDialog.Builder(this)
+                .setTitle("Save your quiz as a draft?")
+                .setMessage("You have unsaved changes. Would you like to save them as a draft?")
+                .setPositiveButton("Save as Draft") { _, _ -> saveQuizAsDraft() }
+                .setNegativeButton("Discard") { _, _ -> super.onBackPressed() }
+                .setNeutralButton("Cancel", null)
+                .show()
+        } else {
+            super.onBackPressed()
+        }
+    }
+
+    private fun hasUnsavedChanges(): Boolean {
+        return binding.etQuizTitle.text.toString().isNotBlank() || questionsList.isNotEmpty()
+    }
+
+    private fun goToDraftQuizzes() {
+        startActivity(Intent(this, DraftQuizzesActivity::class.java))
+        safeFinish()
+    }
+
+    // ------------------------------------------------------------------------
+    // DATE/TIME PICKER
+    // ------------------------------------------------------------------------
     private fun showDateTimePicker() {
         DatePickerDialog(
             this,
@@ -133,7 +574,9 @@ class QuizCreationActivity : AppCompatActivity() {
         ).show()
     }
 
-    // ---------- DUPLICATE TITLE VALIDATION ----------
+    // ------------------------------------------------------------------------
+    // TITLE DUPLICATE CHECK (unchanged)
+    // ------------------------------------------------------------------------
     private fun normalizeTitle(title: String): String {
         return title.trim()
             .replace(Regex("\\s+"), " ")
@@ -196,7 +639,9 @@ class QuizCreationActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- ADD QUESTION DIALOG ----------
+    // ------------------------------------------------------------------------
+    // ADD / EDIT QUESTION DIALOG (unchanged)
+    // ------------------------------------------------------------------------
     private fun showAddQuestionDialog(existingQuestion: Question?) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_add_question, null)
         val etQuestionText = dialogView.findViewById<EditText>(R.id.etQuestionText)
@@ -441,6 +886,9 @@ class QuizCreationActivity : AppCompatActivity() {
         binding.rvQuestionPreview.visibility = if (questionsList.isEmpty()) View.GONE else View.VISIBLE
     }
 
+    // ------------------------------------------------------------------------
+    // SAVE CONFIRMATION
+    // ------------------------------------------------------------------------
     private fun showSaveConfirmation() {
         AlertDialog.Builder(this)
             .setTitle("Save Quiz")
@@ -452,7 +900,9 @@ class QuizCreationActivity : AppCompatActivity() {
             .show()
     }
 
-    // ---------- VALIDATION ----------
+    // ------------------------------------------------------------------------
+    // VALIDATION (unchanged)
+    // ------------------------------------------------------------------------
     private fun validateQuiz(): Boolean {
         val title = binding.etQuizTitle.text.toString().trim()
         if (title.isEmpty()) {
@@ -462,7 +912,6 @@ class QuizCreationActivity : AppCompatActivity() {
             return false
         }
 
-        // Duplicate title check (final authoritative)
         if (isTitleDuplicate(title)) {
             Toast.makeText(this, "Quiz title already exists. Please choose a different title.", Toast.LENGTH_LONG).show()
             binding.etQuizTitle.requestFocus()
@@ -569,113 +1018,29 @@ class QuizCreationActivity : AppCompatActivity() {
         return true
     }
 
-    private fun saveQuiz() {
-        if (!validateQuiz()) {
-            return
+    // ------------------------------------------------------------------------
+    // HELPERS: TIME PARSING / FORMATTING
+    // ------------------------------------------------------------------------
+    private fun parseDurationToSeconds(input: String): Long? {
+        val parts = input.split(":")
+        return if (parts.size == 3) {
+            try {
+                val h = parts[0].toLong()
+                val m = parts[1].toLong()
+                val s = parts[2].toLong()
+                h * 3600 + m * 60 + s
+            } catch (e: NumberFormatException) {
+                null
+            }
+        } else {
+            null
         }
+    }
 
-        val title = binding.etQuizTitle.text.toString().trim()
-        val description = binding.etQuizDescription.text.toString().trim()
-        val visibility = if (binding.radioPublic.isChecked) "public" else "private"
-        val negativeMarking = binding.switchNegativeMarking?.isChecked ?: false
-        val negativeMarkingValue = binding.etNegativeValue?.text.toString().toFloatOrNull() ?: 0.25f
-
-        val timerType = when (binding.radioGroupTimerType.checkedRadioButtonId) {
-            R.id.radioWholeQuizTimer -> "WHOLE_QUIZ"
-            R.id.radioPerQuestionTimer -> "PER_QUESTION"
-            else -> "NONE"
-        }
-
-        val totalTimeSeconds: Long
-        val perQuestionSeconds: Long
-        when (timerType) {
-            "WHOLE_QUIZ" -> {
-                val input = binding.etTotalTime.text.toString()
-                totalTimeSeconds = parseDurationToSeconds(input) ?: 0
-                perQuestionSeconds = 0
-            }
-            "PER_QUESTION" -> {
-                val input = binding.etPerQuestionTime.text.toString()
-                perQuestionSeconds = parseDurationToSeconds(input) ?: 0
-                totalTimeSeconds = 0
-            }
-            else -> {
-                totalTimeSeconds = 0
-                perQuestionSeconds = 0
-            }
-        }
-
-        val randomizationMode = when (binding.radioGroupRandomization.checkedRadioButtonId) {
-            R.id.radioRandomQuestionOrder -> "RANDOM_QUESTION_ORDER"
-            R.id.radioRandomQuestionAndOptionOrder -> "RANDOM_QUESTION_AND_OPTION_ORDER"
-            else -> "FIXED_ORDER"
-        }
-
-        val showScoreAfterSubmission = binding.switchShowScore.isChecked
-
-        val quizCode = if (visibility == "private") Random.nextInt(100000, 999999).toString() else ""
-
-        val quiz = Quiz(
-            title = title,
-            description = description,
-            quizCode = quizCode,
-            creatorId = auth.currentUser?.uid ?: "",
-            visibility = visibility,
-            createdAt = System.currentTimeMillis(),
-            totalQuestions = questionsList.size,
-            timerSeconds = 0,
-            deadline = deadlineTimestamp,
-            negativeMarking = negativeMarking,
-            negativeMarkingValue = negativeMarkingValue,
-            hasImageQuestions = questionsList.any { it.imageUrl.isNotEmpty() },
-            hasAudioQuestions = questionsList.any { it.audioUrl.isNotEmpty() },
-            hasVideoQuestions = questionsList.any { it.videoUrl.isNotEmpty() },
-            timerType = timerType,
-            totalTimeSeconds = totalTimeSeconds,
-            timePerQuestionSeconds = perQuestionSeconds,
-            randomizationMode = randomizationMode,
-            showScoreAfterSubmission = showScoreAfterSubmission
-        )
-
-        db.collection("quizzes").add(quiz)
-            .addOnSuccessListener { docRef ->
-                val batch = db.batch()
-                for (q in questionsList) {
-                    val publicRef = docRef.collection("questions").document()
-                    val publicData = mapOf(
-                        "text" to q.text,
-                        "options" to q.options,
-                        "questionType" to q.questionType,
-                        "points" to q.points,
-                        "imageUrl" to q.imageUrl,
-                        "audioUrl" to q.audioUrl,
-                        "videoUrl" to q.videoUrl
-                    )
-                    batch.set(publicRef, publicData)
-
-                    val privateRef = docRef.collection("questions_private").document(publicRef.id)
-                    val privateData = when (q.questionType) {
-                        "radio" -> mapOf("correctAnswerIndex" to q.correctAnswerIndex)
-                        "checkbox" -> mapOf("correctAnswerIndices" to q.correctAnswerIndices)
-                        "descriptive" -> mapOf("correctAnswerText" to q.correctAnswerText)
-                        else -> emptyMap<String, Any>()
-                    }
-                    batch.set(privateRef, privateData)
-                }
-                batch.commit().addOnSuccessListener {
-                    val message = if (visibility == "private") "Quiz saved! Code: $quizCode" else "Public quiz saved!"
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                    val intent = Intent(this, QuizStatsActivity::class.java)
-                    intent.putExtra("quizId", docRef.id)
-                    intent.putExtra("quizTitle", title)
-                    startActivity(intent)
-                    safeFinish()
-                }.addOnFailureListener { e ->
-                    Toast.makeText(this, "Error saving questions: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .addOnFailureListener { e ->
-                Toast.makeText(this, "Error saving quiz: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
+    private fun formatDuration(seconds: Long): String {
+        val h = seconds / 3600
+        val m = (seconds % 3600) / 60
+        val s = seconds % 60
+        return String.format("%02d:%02d:%02d", h, m, s)
     }
 }
