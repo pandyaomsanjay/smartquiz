@@ -4,9 +4,14 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.smartquiz.databinding.ItemLeaderboardBinding
+import android.graphics.Color
+import android.view.View
 
-class LeaderboardAdapter(private val entries: List<LeaderboardEntry>) :
+// LeaderboardAdapter.kt (modified)
+class LeaderboardAdapter(private var entries: List<LeaderboardEntry>) :
     RecyclerView.Adapter<LeaderboardAdapter.ViewHolder>() {
+
+    private var highlightedUserId: String? = null
 
     class ViewHolder(val binding: ItemLeaderboardBinding) : RecyclerView.ViewHolder(binding.root)
 
@@ -17,10 +22,26 @@ class LeaderboardAdapter(private val entries: List<LeaderboardEntry>) :
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val entry = entries[position]
-        holder.binding.tvRank.text = "#${position + 1}"
+        holder.binding.tvRank.text = "#${entry.rank}"
         holder.binding.tvName.text = entry.name
         holder.binding.tvScore.text = "${entry.totalScore} pts"
+
+        // Highlight if current user
+        val isCurrentUser = entry.userId == highlightedUserId
+        holder.binding.root.setBackgroundColor(
+            if (isCurrentUser) Color.parseColor("#E0E7FF") else Color.TRANSPARENT
+        )
+        holder.binding.tvYouLabel.visibility = if (isCurrentUser) View.VISIBLE else View.GONE
     }
 
     override fun getItemCount() = entries.size
+
+    fun updateList(newList: List<LeaderboardEntry>) {
+        entries = newList
+        notifyDataSetChanged()
+    }
+
+    fun setHighlightedUser(userId: String?) {
+        highlightedUserId = userId
+    }
 }

@@ -153,6 +153,10 @@
             android:name=".DraftQuizzesActivity"
             android:label="Draft Quizzes"
             android:parentActivityName=".CreatorDashboardActivity" />
+        <activity
+            android:name=".QuizLeaderboardActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 
 </manifest>
