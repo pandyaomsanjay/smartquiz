@@ -28,7 +28,7 @@ data class Quiz(
     // Randomization mode
     val randomizationMode: String = "FIXED_ORDER",  // "FIXED_ORDER", "RANDOM_QUESTION_ORDER", "RANDOM_QUESTION_AND_OPTION_ORDER"
     // Score visibility
-    val showScoreAfterSubmission: Boolean = true,
+    val showScoreAfterSubmission: Boolean = true,   // 👈 This controls leaderboard visibility
     // Draft system
     val status: String = "DRAFT",          // "DRAFT", "PUBLISHED", "EXPIRED", "ARCHIVED"
     val updatedAt: Long = 0L               // Last update timestamp

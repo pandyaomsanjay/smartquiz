@@ -1,4 +1,5 @@
-// LeaderboardQuizItem.kt
+package com.smartquiz
+
 data class LeaderboardQuizItem(
     val quizId: String,
     val title: String,
@@ -7,5 +8,6 @@ data class LeaderboardQuizItem(
     val totalScore: Int,
     val userRank: Int,
     val totalParticipants: Int,
-    val status: String  // "Completed", "In Progress", etc.
+    val status: String,
+    val showScore: Boolean = true
 )

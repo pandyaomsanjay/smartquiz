@@ -3,7 +3,6 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-
     android:padding="16dp"
     android:background="?android:attr/selectableItemBackground">
 
@@ -42,7 +41,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:text="@string/label_you"
+                android:text="YOU"
                 android:textSize="12sp"
                 android:textColor="#4F46E5"
                 android:textStyle="italic"

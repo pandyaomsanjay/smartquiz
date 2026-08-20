@@ -1,12 +1,10 @@
 package com.smartquiz
 
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Toast
-import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
@@ -14,7 +12,6 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.smartquiz.databinding.ActivityQuizLeaderboardBinding
 
-// QuizLeaderboardActivity.kt
 class QuizLeaderboardActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityQuizLeaderboardBinding
@@ -22,10 +19,12 @@ class QuizLeaderboardActivity : AppCompatActivity() {
     private lateinit var auth: FirebaseAuth
     private var quizId = ""
     private var quizTitle = ""
+    private var showScores = true
     private val participants = mutableListOf<LeaderboardEntry>()
-    private lateinit var adapter: LeaderboardAdapter // reuse existing LeaderboardAdapter (update to support highlighting)
+    private lateinit var adapter: LeaderboardAdapter
     private var currentUserId: String? = null
     private var currentUserRank = -1
+    private val TAG = "QuizLeaderboard"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,11 +42,23 @@ class QuizLeaderboardActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
         currentUserId = auth.currentUser?.uid
 
-        adapter = LeaderboardAdapter(participants) // we'll extend to highlight current user
+        // Initialize adapter with empty list
+        adapter = LeaderboardAdapter(participants, showScores = true)
         binding.rvLeaderboard.layoutManager = LinearLayoutManager(this)
         binding.rvLeaderboard.adapter = adapter
 
-        loadLeaderboard()
+        // Fetch quiz visibility setting
+        db.collection("quizzes").document(quizId).get()
+            .addOnSuccessListener { doc ->
+                showScores = doc.getBoolean("showScoreAfterSubmission") ?: true
+                binding.tvQuizTitle.text = quizTitle
+                loadLeaderboard()
+            }
+            .addOnFailureListener {
+                showScores = true
+                binding.tvQuizTitle.text = quizTitle
+                loadLeaderboard()
+            }
 
         binding.btnViewMyRank.setOnClickListener {
             if (currentUserRank != -1) {
@@ -58,9 +69,12 @@ class QuizLeaderboardActivity : AppCompatActivity() {
 
     private fun loadLeaderboard() {
         binding.progressBar.visibility = View.VISIBLE
+        // Keep RecyclerView visible but with empty adapter; we'll update later
+        binding.rvLeaderboard.visibility = View.VISIBLE
+        binding.tvEmpty.visibility = View.GONE
+
         val quizRef = db.collection("quizzes").document(quizId)
 
-        // Fetch all attempts
         quizRef.collection("attempts")
             .get()
             .addOnSuccessListener { attemptsSnap ->
@@ -68,14 +82,24 @@ class QuizLeaderboardActivity : AppCompatActivity() {
                 if (attempts.isEmpty()) {
                     binding.progressBar.visibility = View.GONE
                     binding.tvEmpty.visibility = View.VISIBLE
+                    binding.rvLeaderboard.visibility = View.GONE
+                    participants.clear()
+                    adapter.updateList(participants)
                     return@addOnSuccessListener
                 }
 
-                // Compute statistics
+                Log.d(TAG, "Attempts count: ${attempts.size}")
+
+                if (!showScores) {
+                    populateSimpleLeaderboard(attempts)
+                    return@addOnSuccessListener
+                }
+
+                // Scores visible
                 val completed = attempts.filter { it.getString("status") == "Completed" }
                 val total = attempts.size
                 val completionRate = if (total > 0) (completed.size * 100.0 / total) else 0.0
-                val scores = attempts.mapNotNull { it.getLong("score")?.toInt() }
+                val scores = attempts.mapNotNull { it.getDouble("score")?.toInt() }
                 val highest = scores.maxOrNull() ?: 0
                 val lowest = scores.minOrNull() ?: 0
 
@@ -83,8 +107,8 @@ class QuizLeaderboardActivity : AppCompatActivity() {
                 binding.tvCompletionRate.text = "Completion Rate: ${String.format("%.1f", completionRate)}%"
                 binding.tvHighestScore.text = "Highest Score: $highest"
                 binding.tvLowestScore.text = "Lowest Score: $lowest"
+                binding.statsCard.visibility = View.VISIBLE
 
-                // Build participant list with user names (resolve from user documents)
                 val userIds = attempts.map { it.id }.distinct()
                 val userTasks = userIds.map { userId ->
                     db.collection("users").document(userId).get()
@@ -93,62 +117,111 @@ class QuizLeaderboardActivity : AppCompatActivity() {
                 Tasks.whenAllSuccess<DocumentSnapshot>(userTasks)
                     .addOnSuccessListener { userDocs ->
                         val userMap = userDocs.associate { it.id to (it.getString("name") ?: "Unknown") }
-
-                        // Map attempts to LeaderboardEntry (score, name, userId)
-                        val entries = attempts.mapNotNull { doc ->
-                            val userId = doc.id
-                            val score = doc.getLong("score")?.toInt() ?: 0
-                            val name = userMap[userId] ?: "Unknown"
-                            LeaderboardEntry(userId = userId, name = name, totalScore = score)
-                        }
-
-                        // Sort with tie-breaking: descending score, then submitTime ascending (earlier better)
-                        val sorted = entries.sortedWith(compareByDescending<LeaderboardEntry> { it.totalScore }
-                            .thenBy { entry ->
-                                // fetch submitTime for tie-break
-                                val attemptDoc = attempts.find { it.id == entry.userId } // better to map
-                                // We'll store submitTime in the entry or fetch from doc
-                                0L // placeholder; we'll do proper tie-break below
-                            })
-
-                        // Rebuild with proper rank and tie handling
-                        val ranked = mutableListOf<LeaderboardEntry>()
-                        var rank = 1
-                        var prevScore: Int? = null
-                        var position = 1
-                        for (entry in sorted) {
-                            if (prevScore != null && entry.totalScore != prevScore) {
-                                rank = position
-                            }
-                            ranked.add(entry.copy(rank = rank))
-                            prevScore = entry.totalScore
-                            position++
-                        }
-
-                        participants.clear()
-                        participants.addAll(ranked)
-
-                        // Find current user's rank
-                        currentUserRank = participants.indexOfFirst { it.userId == currentUserId } + 1
-                        if (currentUserRank > 0) {
-                            binding.btnViewMyRank.visibility = View.VISIBLE
-                        }
-
-                        // Highlight current user in adapter (we'll pass a set of highlighted userIds)
-                        adapter.setHighlightedUser(currentUserId)
-                        adapter.notifyDataSetChanged()
-
-                        binding.progressBar.visibility = View.GONE
-                        binding.tvEmpty.visibility = View.GONE
+                        buildRankedLeaderboard(attempts, userMap)
                     }
-                    .addOnFailureListener {
-                        binding.progressBar.visibility = View.GONE
-                        Toast.makeText(this, "Failed to load user names", Toast.LENGTH_SHORT).show()
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Failed to load user names: ${e.message}")
+                        val fallbackMap = userIds.associateWith { it.take(8) }
+                        buildRankedLeaderboard(attempts, fallbackMap)
+                        Toast.makeText(this, "Could not load names, showing user IDs", Toast.LENGTH_SHORT).show()
                     }
             }
-            .addOnFailureListener {
+            .addOnFailureListener { e ->
                 binding.progressBar.visibility = View.GONE
-                Toast.makeText(this, "Failed to load leaderboard", Toast.LENGTH_SHORT).show()
+                binding.tvEmpty.visibility = View.VISIBLE
+                binding.rvLeaderboard.visibility = View.GONE
+                Toast.makeText(this, "Failed to load leaderboard: ${e.message}", Toast.LENGTH_SHORT).show()
+                binding.tvEmpty.text = "Unable to load leaderboard data."
+            }
+    }
+
+    private fun buildRankedLeaderboard(attempts: List<DocumentSnapshot>, userMap: Map<String, String>) {
+        val entries = attempts.mapNotNull { doc ->
+            val userId = doc.id
+            val score = doc.getDouble("score")?.toInt() ?: 0
+            val name = userMap[userId] ?: "Unknown"
+            LeaderboardEntry(userId = userId, name = name, totalScore = score)
+        }
+
+        Log.d(TAG, "Entries size: ${entries.size}")
+
+        if (entries.isEmpty()) {
+            binding.progressBar.visibility = View.GONE
+            binding.tvEmpty.visibility = View.VISIBLE
+            binding.rvLeaderboard.visibility = View.GONE
+            participants.clear()
+            adapter.updateList(participants)
+            return
+        }
+
+        val submitTimeMap = attempts.associate { it.id to (it.getLong("submitTime") ?: 0L) }
+        val sorted = entries.sortedWith(compareByDescending<LeaderboardEntry> { it.totalScore }
+            .thenBy { submitTimeMap[it.userId] ?: 0L })
+
+        var rank = 1
+        var prevScore: Int? = null
+        var position = 1
+        val ranked = mutableListOf<LeaderboardEntry>()
+        for (entry in sorted) {
+            if (prevScore != null && entry.totalScore != prevScore) {
+                rank = position
+            }
+            ranked.add(entry.copy(rank = rank))
+            prevScore = entry.totalScore
+            position++
+        }
+
+        participants.clear()
+        participants.addAll(ranked)
+
+        currentUserRank = participants.indexOfFirst { it.userId == currentUserId } + 1
+        binding.btnViewMyRank.visibility = if (currentUserRank > 0) View.VISIBLE else View.GONE
+
+        adapter.updateList(participants)
+        adapter.setHighlightedUser(currentUserId)
+        binding.rvLeaderboard.visibility = View.VISIBLE
+        binding.progressBar.visibility = View.GONE
+        binding.tvEmpty.visibility = View.GONE
+    }
+
+    private fun populateSimpleLeaderboard(attempts: List<DocumentSnapshot>) {
+        val userIds = attempts.map { it.id }.distinct()
+        val userTasks = userIds.map { userId ->
+            db.collection("users").document(userId).get()
+        }
+
+        Tasks.whenAllSuccess<DocumentSnapshot>(userTasks)
+            .addOnSuccessListener { userDocs ->
+                val userMap = userDocs.associate { it.id to (it.getString("name") ?: "Unknown") }
+                participants.clear()
+                for (doc in attempts) {
+                    val userId = doc.id
+                    val name = userMap[userId] ?: "Unknown"
+                    participants.add(LeaderboardEntry(userId = userId, name = name, totalScore = 0, rank = 0))
+                }
+                binding.statsCard.visibility = View.GONE
+                adapter.updateList(participants)
+                adapter.setHighlightedUser(currentUserId)
+                binding.rvLeaderboard.visibility = View.VISIBLE
+                binding.progressBar.visibility = View.GONE
+                binding.tvEmpty.visibility = View.GONE
+                binding.btnViewMyRank.visibility = View.GONE
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to load names for simple leaderboard: ${e.message}")
+                participants.clear()
+                for (doc in attempts) {
+                    val userId = doc.id
+                    participants.add(LeaderboardEntry(userId = userId, name = userId.take(8), totalScore = 0, rank = 0))
+                }
+                binding.statsCard.visibility = View.GONE
+                adapter.updateList(participants)
+                adapter.setHighlightedUser(currentUserId)
+                binding.rvLeaderboard.visibility = View.VISIBLE
+                binding.progressBar.visibility = View.GONE
+                binding.tvEmpty.visibility = View.GONE
+                binding.btnViewMyRank.visibility = View.GONE
+                Toast.makeText(this, "Could not load names, showing user IDs", Toast.LENGTH_SHORT).show()
             }
     }
 

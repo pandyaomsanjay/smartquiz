@@ -1,12 +1,11 @@
 package com.smartquiz
 
-import LeaderboardQuizItem
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.smartquiz.databinding.ItemJoinedQuizLeaderboardBinding
-import android.view.ViewGroup
-import android.view.LayoutInflater
 
-// LeaderboardQuizAdapter.kt
 class LeaderboardQuizAdapter(
     private var items: List<LeaderboardQuizItem>,
     private val onViewLeaderboard: (quizId: String, title: String) -> Unit
@@ -23,9 +22,25 @@ class LeaderboardQuizAdapter(
         val item = items[position]
         holder.binding.tvQuizTitle.text = item.title
         holder.binding.tvQuizCode.text = "Code: ${item.quizCode}"
-        holder.binding.tvScore.text = "Score: ${item.userScore}/${item.totalScore}"
-        val rankText = if (item.userRank > 0) "#${item.userRank} of ${item.totalParticipants}" else "Not Attempted"
-        holder.binding.tvRank.text = "Rank: $rankText"
+
+        if (item.showScore) {
+            holder.binding.tvScore.text = "Score: ${item.userScore}/${item.totalScore}"
+            val rankText = if (item.userRank > 0) "#${item.userRank} of ${item.totalParticipants}" else "Not Attempted"
+            holder.binding.tvRank.text = "Rank: $rankText"
+            holder.binding.tvScore.visibility = View.VISIBLE
+            holder.binding.tvRank.visibility = View.VISIBLE
+            holder.binding.tvStatus.visibility = View.GONE
+        } else {
+            holder.binding.tvScore.visibility = View.GONE
+            holder.binding.tvRank.visibility = View.GONE
+            holder.binding.tvStatus.visibility = View.VISIBLE
+            holder.binding.tvStatus.text = when (item.status) {
+                "Completed" -> "✅ Completed"
+                "In Progress" -> "⏳ In Progress"
+                else -> item.status
+            }
+        }
+
         holder.binding.btnViewLeaderboard.setOnClickListener {
             onViewLeaderboard(item.quizId, item.title)
         }

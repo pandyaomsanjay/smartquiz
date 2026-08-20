@@ -57,6 +57,16 @@
                 android:gravity="end" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Completed"
+            android:textSize="14sp"
+            android:textColor="@color/success"
+            android:visibility="gone" />
+
         <Button
             android:id="@+id/btnViewLeaderboard"
             android:layout_width="match_parent"
@@ -65,6 +75,5 @@
             android:text="View Leaderboard"
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:textColor="@color/primary" />
-
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

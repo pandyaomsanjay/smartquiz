@@ -4,7 +4,6 @@ import android.os.Bundle
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
-import android.widget.Spinner
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -68,7 +67,6 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
     }
 
     private fun setupDateFilter() {
-        // Populate quick filter options
         val filterOptions = arrayOf("All Time", "Today", "Last 7 Days", "Last 30 Days", "Custom")
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, filterOptions)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -78,7 +76,7 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val now = System.currentTimeMillis()
                 startDate = when (position) {
-                    1 -> { // Today
+                    1 -> {
                         val cal = Calendar.getInstance().apply {
                             set(Calendar.HOUR_OF_DAY, 0)
                             set(Calendar.MINUTE, 0)
@@ -89,7 +87,7 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
                     }
                     2 -> now - 7 * 24 * 60 * 60 * 1000L
                     3 -> now - 30 * 24 * 60 * 60 * 1000L
-                    else -> 0L // All Time or Custom
+                    else -> 0L
                 }
                 endDate = now
                 applyFilter()
@@ -98,7 +96,6 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // Custom date pickers (simplified - just set start/end via buttons)
         binding.btnPickStartDate.setOnClickListener {
             showDatePicker { timestamp ->
                 startDate = timestamp
@@ -133,7 +130,7 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
     }
 
     private fun setupLeaderboard() {
-        leaderboardAdapter = LeaderboardAdapter(leaderboardEntries)
+        leaderboardAdapter = LeaderboardAdapter(leaderboardEntries, showScores = true)
         binding.rvLeaderboard.layoutManager = LinearLayoutManager(this)
         binding.rvLeaderboard.adapter = leaderboardAdapter
     }
@@ -187,7 +184,6 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
                     // Track incorrect answers for "Most Incorrect Question"
                     // We need to know correct answers; we'll fetch questions later.
                 }
-                // Need to fetch questions to compute incorrect counts
                 fetchQuestionsAndComputeStats()
             }
             .addOnFailureListener { e ->
@@ -295,8 +291,6 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
             }
         }
         val mostIncorrectText = if (mostIncorrectQuestionId.isNotEmpty()) {
-            // Fetch question text from cached questions? We don't have them in this scope.
-            // We can show "Question ID" or re-fetch. For simplicity, we'll show "Question ${mostIncorrectQuestionId.take(8)}..."
             "Question (ID: ${mostIncorrectQuestionId.take(8)}...) - $maxIncorrect incorrect attempts"
         } else {
             "No incorrect answers"
@@ -311,18 +305,28 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
         binding.tvTimeExpired.text = "Time-Expired: $timeExpired"
         binding.tvMostIncorrect.text = "Most Incorrect: $mostIncorrectText"
 
-        // Leaderboard - sort by score descending
+        // ---- Compute ranks for leaderboard ----
         val sorted = filteredAttempts.sortedByDescending { it.score }
         leaderboardEntries.clear()
-        sorted.forEachIndexed { index, attempt ->
+        var rank = 1
+        var prevScore: Double? = null
+        var position = 1
+        for ((index, attempt) in sorted.withIndex()) {
+            if (prevScore != null && attempt.score != prevScore) {
+                rank = position
+            }
             leaderboardEntries.add(
                 LeaderboardEntry(
                     userId = attempt.userId,
                     name = attempt.userName,
-                    totalScore = attempt.score.toInt()
+                    totalScore = attempt.score.toInt(),
+                    rank = rank
                 )
             )
+            prevScore = attempt.score
+            position++
         }
+        leaderboardAdapter.updateList(leaderboardEntries)
         leaderboardAdapter.notifyDataSetChanged()
     }
 

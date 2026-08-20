@@ -24,8 +24,8 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Stats Card -->
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/statsCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardCornerRadius="16dp"
@@ -81,7 +81,6 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Leaderboard title -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -91,14 +90,12 @@
                 android:textColor="@color/text_primary"
                 android:layout_marginBottom="12dp" />
 
-            <!-- RecyclerView for participants -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rvLeaderboard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:nestedScrollingEnabled="false" />
 
-            <!-- View My Rank Button -->
             <Button
                 android:id="@+id/btnViewMyRank"
                 android:layout_width="match_parent"
@@ -108,7 +105,6 @@
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 android:visibility="gone" />
 
-            <!-- Empty state -->
             <TextView
                 android:id="@+id/tvEmpty"
                 android:layout_width="wrap_content"
@@ -119,7 +115,6 @@
                 android:layout_gravity="center"
                 android:layout_marginTop="32dp"
                 android:visibility="gone" />
-
         </LinearLayout>
     </ScrollView>
 
