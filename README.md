@@ -280,7 +280,7 @@ A Firebase Spark plan can be used for development.
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/smart-quiz.git
+git clone https://github.com/pandyaomsanjay/smartquiz
 cd smart-quiz
 ```
 
@@ -395,7 +395,7 @@ Find the debug variant:
 
 ```text
 Variant: debug
-SHA1: XX:XX:XX:XX:XX:...
+SHA1: 09:21:97:a6:d8:f5:e0:a7:b7:13:1e:07:93:37:73:15:b7:48:e6:c3
 ```
 
 Copy the SHA-1 value.
