@@ -60,7 +60,7 @@
                         android:maxLines="1" />
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- Title feedback (inline validation) -->
+                <!-- Title feedback -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -260,13 +260,31 @@
                     </RadioGroup>
                 </com.google.android.material.card.MaterialCardView>
 
+                <!-- ====================================================== -->
+                <!-- NEW: Start Time (added above Deadline)                  -->
+                <!-- ====================================================== -->
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Start Date/Time (yyyy-MM-dd HH:mm)"
+                    android:layout_marginTop="16dp">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etStartTime"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="datetime"
+                        android:focusable="false"
+                        android:cursorVisible="false" />
+                </com.google.android.material.textfield.TextInputLayout>
+
                 <!-- Deadline -->
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:hint="Deadline (yyyy-MM-dd HH:mm)"
-                    android:layout_marginTop="16dp">
+                    android:layout_marginTop="8dp">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etDeadline"
                         android:layout_width="match_parent"
@@ -311,7 +329,7 @@
                         android:text="0.25" />
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- NEW: Show Score After Submission -->
+                <!-- Show Score After Submission -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -350,7 +368,6 @@
             android:textAppearance="?attr/textAppearanceHeadline3"
             android:layout_marginBottom="16dp" />
 
-        <!-- Add Question Button -->
         <Button
             android:id="@+id/btnAddQuestion"
             android:layout_width="match_parent"
@@ -359,7 +376,6 @@
             android:backgroundTint="@color/accent"
             android:textAppearance="?attr/textAppearanceButton" />
 
-        <!-- Question Count -->
         <TextView
             android:id="@+id/tvQuestionsCount"
             android:layout_width="wrap_content"
@@ -368,7 +384,6 @@
             android:textAppearance="?attr/textAppearanceBody2"
             android:layout_marginTop="8dp" />
 
-        <!-- RecyclerView for Question Preview -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvQuestionPreview"
             android:layout_width="match_parent"
@@ -386,7 +401,6 @@
             android:backgroundTint="@color/accent"
             android:textAppearance="?attr/textAppearanceButton" />
 
-        <!-- Save Quiz Button -->
         <Button
             android:id="@+id/btnSaveQuiz"
             android:layout_width="match_parent"

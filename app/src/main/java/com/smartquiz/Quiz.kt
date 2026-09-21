@@ -12,8 +12,9 @@ data class Quiz(
     val visibility: String = "private",
     val quizCode: String = "",
     val totalQuestions: Int = 0,
-    val timerSeconds: Int = 60,            // legacy – keep for compatibility
-    val deadline: Long = 0,
+    val timerSeconds: Int = 60,
+    val deadline: Long = 0,                 // due date/time (ms)
+    val startTime: Long = 0,                // NEW – start date/time (ms)
     val allowMultipleAttempts: Boolean = false,
     val category: String = "General",
     val negativeMarking: Boolean = false,
@@ -21,15 +22,38 @@ data class Quiz(
     val hasImageQuestions: Boolean = false,
     val hasAudioQuestions: Boolean = false,
     val hasVideoQuestions: Boolean = false,
-    // TIMER FIELDS
-    val timerType: String = "NONE",        // "NONE", "WHOLE_QUIZ", "PER_QUESTION"
+    val timerType: String = "NONE",
     val totalTimeSeconds: Long = 0,
     val timePerQuestionSeconds: Long = 0,
-    // Randomization mode
-    val randomizationMode: String = "FIXED_ORDER",  // "FIXED_ORDER", "RANDOM_QUESTION_ORDER", "RANDOM_QUESTION_AND_OPTION_ORDER"
-    // Score visibility
-    val showScoreAfterSubmission: Boolean = true,   // 👈 This controls leaderboard visibility
-    // Draft system
-    val status: String = "DRAFT",          // "DRAFT", "PUBLISHED", "EXPIRED", "ARCHIVED"
-    val updatedAt: Long = 0L               // Last update timestamp
-) : Serializable
+    val randomizationMode: String = "FIXED_ORDER",
+    val showScoreAfterSubmission: Boolean = true,
+    val status: String = "DRAFT",           // DRAFT / PUBLISHED
+    val updatedAt: Long = 0L,
+
+    // ---------- NEW: lifecycle & archive ----------
+    val archived: Boolean = false,          // true once archive/delete ran
+    val archivedAt: Long = 0L,              // server timestamp when archived
+    val participantCount: Int = 0           // cached count for listing
+) : Serializable {
+
+    /**
+     * Returns the live lifecycle status.
+     *  UPCOMING   – startTime is in the future
+     *  LIVE       – startTime <= now < deadline
+     *  COMPLETED  – deadline passed but the quiz was marked completed by creator (optional)
+     *  EXPIRED    – deadline passed
+     *  DELETED    – archived == true
+     *
+     * Uses `serverTimeMs` (from Firestore ServerValue or current time) so the
+     * calculation is not dependent on the local clock.
+     */
+    fun computeStatus(serverTimeMs: Long = System.currentTimeMillis()): QuizLifecycleStatus {
+        if (archived) return QuizLifecycleStatus.DELETED
+        val now = serverTimeMs
+        return when {
+            startTime > 0 && now < startTime -> QuizLifecycleStatus.UPCOMING
+            deadline > 0 && now >= deadline -> QuizLifecycleStatus.EXPIRED
+            else -> QuizLifecycleStatus.LIVE
+        }
+    }
+}

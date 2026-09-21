@@ -24,7 +24,6 @@ class QuizInstructionsActivity : AppCompatActivity() {
         binding = ActivityQuizInstructionsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Setup toolbar
         setSupportActionBar(binding.toolbarInstructions)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.setHomeAsUpIndicator(R.drawable.ic_back)
@@ -36,7 +35,6 @@ class QuizInstructionsActivity : AppCompatActivity() {
         db = FirebaseFirestore.getInstance()
         auth = FirebaseAuth.getInstance()
 
-        // Show loading state
         binding.progressBar.visibility = View.VISIBLE
         binding.btnStartQuiz.isEnabled = false
         binding.btnStartQuiz.text = "Loading..."
@@ -66,7 +64,6 @@ class QuizInstructionsActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
-                // Fetch creator name
                 db.collection("users").document(quiz.creatorId).get()
                     .addOnSuccessListener { userDoc ->
                         val creatorName = userDoc.getString("name") ?: "Unknown Creator"
@@ -74,7 +71,6 @@ class QuizInstructionsActivity : AppCompatActivity() {
                         checkUserAttempt(quiz)
                     }
                     .addOnFailureListener {
-                        // Still display info with fallback creator name
                         displayQuizInfo(quiz, "Unknown Creator")
                         checkUserAttempt(quiz)
                     }
@@ -92,9 +88,10 @@ class QuizInstructionsActivity : AppCompatActivity() {
         binding.tvDescription.text = quiz.description
         binding.tvQuestionCount.text = "Questions: ${quiz.totalQuestions}"
         binding.tvTimerMode.text = "Timer: ${getTimerModeDisplay(quiz)}"
-        binding.tvDeadline.text = if (quiz.deadline > 0) "Deadline: ${formatDate(quiz.deadline)}" else "Deadline: No deadline"
+        binding.tvDeadline.text =
+            if (quiz.deadline > 0) "Deadline: ${formatDate(quiz.deadline)}" else "Deadline: No deadline"
 
-        // Instructions (keep them separate)
+        // Instructions
         val instructions = """
             • Read each question carefully.
             • You cannot go back after submitting.
@@ -131,10 +128,44 @@ class QuizInstructionsActivity : AppCompatActivity() {
             return
         }
 
+        // ---------- NEW: lifecycle status ----------
+        val serverTime = QuizTimeUtils.getServerTimeMs()
+        val lifecycle = quiz.computeStatus(serverTime)
+
+        binding.tvStatus.text = lifecycle.label
+        binding.tvStatus.setBackgroundColor(
+            ContextCompat.getColor(this, lifecycle.colorRes)
+        )
+
+        when (lifecycle) {
+            QuizLifecycleStatus.UPCOMING -> {
+                binding.btnStartQuiz.isEnabled = false
+                binding.btnStartQuiz.text = "Not Started Yet"
+                Toast.makeText(
+                    this,
+                    "This quiz starts at ${QuizTimeUtils.formatDateTime(quiz.startTime)}",
+                    Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+            QuizLifecycleStatus.EXPIRED, QuizLifecycleStatus.DELETED -> {
+                binding.btnStartQuiz.isEnabled = false
+                binding.btnStartQuiz.text = "Expired"
+                Toast.makeText(this, "This quiz has expired", Toast.LENGTH_SHORT).show()
+                return
+            }
+            QuizLifecycleStatus.COMPLETED -> {
+                binding.btnStartQuiz.isEnabled = false
+                binding.btnStartQuiz.text = "Completed"
+                Toast.makeText(this, "This quiz has been completed", Toast.LENGTH_SHORT).show()
+                return
+            }
+            QuizLifecycleStatus.LIVE -> { /* continue below */ }
+        }
+
         val now = System.currentTimeMillis()
         val isExpired = quiz.deadline > 0 && now > quiz.deadline
 
-        // Check for existing attempt
         db.collection("quizzes").document(quizId)
             .collection("attempts").document(userId)
             .get()
@@ -163,18 +194,13 @@ class QuizInstructionsActivity : AppCompatActivity() {
                                 }
                             }
                         }
-                        else -> {
-                            // Fallback: treat as not started
-                            handleNotStarted(isExpired)
-                        }
+                        else -> handleNotStarted(isExpired)
                     }
                 } else {
-                    // No attempt
                     handleNotStarted(isExpired)
                 }
             }
             .addOnFailureListener {
-                // On error, default to Not Started
                 handleNotStarted(isExpired)
             }
     }
@@ -198,7 +224,6 @@ class QuizInstructionsActivity : AppCompatActivity() {
     private fun setStatus(text: String, colorResId: Int) {
         binding.tvStatus.text = text
         binding.tvStatus.setBackgroundColor(ContextCompat.getColor(this, colorResId))
-        // You may also set text color or use a compound drawable if needed
     }
 
     private fun startQuizActivity() {
@@ -215,4 +240,3 @@ class QuizInstructionsActivity : AppCompatActivity() {
         return true
     }
 }
-

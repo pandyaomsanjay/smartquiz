@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
@@ -89,7 +90,7 @@ class JoinQuizActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
 
-        binding.chipGroupFilter.setOnCheckedChangeListener { group, checkedId ->
+        binding.chipGroupFilter.setOnCheckedChangeListener { _, checkedId ->
             currentFilter = when (checkedId) {
                 R.id.chipCompleted -> "Completed"
                 R.id.chipInProgress -> "In Progress"
@@ -121,7 +122,6 @@ class JoinQuizActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Remove listener to prevent memory leaks
         joinedQuizzesListener?.remove()
     }
 
@@ -131,7 +131,9 @@ class JoinQuizActivity : AppCompatActivity() {
         return true
     }
 
-    // ---------- JOIN QUIZ ----------
+    // ==================================================================
+    // JOIN QUIZ
+    // ==================================================================
     private fun joinQuizWithCode(code: String) {
         val userId = auth.currentUser?.uid
         if (userId == null) {
@@ -159,24 +161,57 @@ class JoinQuizActivity : AppCompatActivity() {
                 }
                 quiz.quizId = quizDoc.id
 
+                // ---------- Lifecycle guard ----------
+                val lifecycle = quiz.computeStatus(QuizTimeUtils.getServerTimeMs())
+                when (lifecycle) {
+                    QuizLifecycleStatus.UPCOMING -> {
+                        Toast.makeText(
+                            this,
+                            "This quiz starts at ${QuizTimeUtils.formatDateTime(quiz.startTime)}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@addOnSuccessListener
+                    }
+                    QuizLifecycleStatus.EXPIRED, QuizLifecycleStatus.DELETED -> {
+                        Toast.makeText(
+                            this,
+                            "This quiz has expired and can no longer be joined.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@addOnSuccessListener
+                    }
+                    QuizLifecycleStatus.COMPLETED -> {
+                        Toast.makeText(this, "This quiz has been completed.", Toast.LENGTH_LONG).show()
+                        return@addOnSuccessListener
+                    }
+                    QuizLifecycleStatus.LIVE -> { /* proceed */ }
+                }
+
                 if (quiz.deadline > 0 && System.currentTimeMillis() > quiz.deadline) {
                     Toast.makeText(this, "This quiz has expired", Toast.LENGTH_SHORT).show()
                     return@addOnSuccessListener
                 }
 
+                // ---------- Check for existing attempt ----------
                 db.collection("quizzes").document(quiz.quizId!!)
                     .collection("attempts").document(userId)
                     .get()
                     .addOnSuccessListener { attemptDoc ->
                         if (attemptDoc.exists() && attemptDoc.getString("status") == "Completed") {
-                            Toast.makeText(this, "You have already completed this quiz. Multiple attempts are not allowed.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(
+                                this,
+                                "You have already completed this quiz. Multiple attempts are not allowed.",
+                                Toast.LENGTH_LONG
+                            ).show()
                             return@addOnSuccessListener
                         }
+                        // ---------- Check if already joined ----------
                         db.collection("users").document(userId)
                             .collection("joinedQuizzes").document(quiz.quizId!!)
                             .get()
                             .addOnSuccessListener { joinedDoc ->
                                 if (joinedDoc.exists()) {
+                                    // Already joined — no need to run the transaction.
                                     navigateToQuizInfo(quiz)
                                     return@addOnSuccessListener
                                 }
@@ -196,55 +231,83 @@ class JoinQuizActivity : AppCompatActivity() {
             }
     }
 
+    // ==================================================================
+    // PROCEED TO JOIN — atomic transaction, increments participantCount
+    // ==================================================================
     private fun proceedToJoin(quiz: Quiz, userId: String) {
         val joinTime = System.currentTimeMillis()
+
+        // Fetch creator name (read-only). Fall back to "Unknown" if missing.
         db.collection("users").document(quiz.creatorId).get()
             .addOnSuccessListener { userDoc ->
                 val creatorName = userDoc.getString("name") ?: "Unknown Creator"
-                val joinedQuiz = JoinedQuiz(
-                    quizId = quiz.quizId!!,
-                    quizTitle = quiz.title,
-                    quizCode = quiz.quizCode,
-                    creatorId = quiz.creatorId,
-                    creatorName = creatorName,
-                    joinTime = joinTime,
-                    submitTime = null,
-                    status = "In Progress",
-                    score = null,
-                    category = quiz.category,
-                    allowMultipleAttempts = quiz.allowMultipleAttempts
-                )
-                db.collection("users").document(userId)
-                    .collection("joinedQuizzes").document(quiz.quizId!!)
-                    .set(joinedQuiz)
-                    .addOnSuccessListener {
-                        navigateToQuizInfo(quiz)
-                    }
-                    .addOnFailureListener { e ->
-                        Toast.makeText(this, "Failed to join: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
+                commitJoinTransaction(quiz, userId, joinTime, creatorName)
             }
             .addOnFailureListener {
-                val joinedQuiz = JoinedQuiz(
-                    quizId = quiz.quizId!!,
-                    quizTitle = quiz.title,
-                    quizCode = quiz.quizCode,
-                    creatorId = quiz.creatorId,
-                    creatorName = "Unknown",
-                    joinTime = joinTime,
-                    submitTime = null,
-                    status = "In Progress",
-                    score = null,
-                    category = quiz.category,
-                    allowMultipleAttempts = quiz.allowMultipleAttempts
-                )
-                db.collection("users").document(userId)
-                    .collection("joinedQuizzes").document(quiz.quizId!!)
-                    .set(joinedQuiz)
-                    .addOnSuccessListener {
-                        navigateToQuizInfo(quiz)
-                    }
+                commitJoinTransaction(quiz, userId, joinTime, "Unknown")
             }
+    }
+
+    /**
+     * Atomically:
+     *   1. Ensures a `joinedQuizzes/{quizId}` doc exists for this user.
+     *   2. Increments `quizzes/{quizId}.participantCount` on first join only.
+     *
+     * Re-joins (same user, same quiz) are no-ops for `participantCount`.
+     */
+    private fun commitJoinTransaction(
+        quiz: Quiz,
+        userId: String,
+        joinTime: Long,
+        creatorName: String
+    ) {
+        val quizId = quiz.quizId ?: run {
+            Toast.makeText(this, "Invalid quiz", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val joinedRef = db.collection("users").document(userId)
+            .collection("joinedQuizzes").document(quizId)
+        val quizRef = db.collection("quizzes").document(quizId)
+
+        db.runTransaction { transaction ->
+            val existing = transaction.get(joinedRef)
+
+            if (existing.exists()) {
+                // Already joined — do nothing (no double count).
+                return@runTransaction null
+            }
+
+            val joinedQuiz = JoinedQuiz(
+                quizId = quizId,
+                quizTitle = quiz.title,
+                quizCode = quiz.quizCode,
+                creatorId = quiz.creatorId,
+                creatorName = creatorName,
+                joinTime = joinTime,
+                submitTime = null,
+                status = "In Progress",
+                score = null,
+                category = quiz.category,
+                allowMultipleAttempts = quiz.allowMultipleAttempts
+            )
+
+            transaction.set(joinedRef, joinedQuiz)
+
+            // Atomic increment. If the field doesn't exist, Firestore creates it at 1.
+            transaction.update(
+                quizRef,
+                "participantCount",
+                FieldValue.increment(1)
+            )
+
+            null
+        }.addOnSuccessListener {
+            navigateToQuizInfo(quiz)
+        }.addOnFailureListener { e ->
+            Log.e(TAG, "Join transaction failed: ${e.message}")
+            Toast.makeText(this, "Failed to join: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun navigateToQuizInfo(quiz: Quiz) {
@@ -256,7 +319,9 @@ class JoinQuizActivity : AppCompatActivity() {
         finish()
     }
 
-    // ---------- LOAD JOINED QUIZZES (snapshot listener) ----------
+    // ==================================================================
+    // LOAD JOINED QUIZZES (snapshot listener)
+    // ==================================================================
     private fun loadJoinedQuizzes() {
         val userId = auth.currentUser?.uid ?: return
 
@@ -274,7 +339,6 @@ class JoinQuizActivity : AppCompatActivity() {
                 } ?: emptyList()
 
                 Log.d(TAG, "Joined quiz documents received: ${items.size}")
-                items.forEach { Log.d(TAG, "Quiz ID: ${it.quizId}, Title: ${it.quizTitle}, Status: ${it.status}") }
 
                 allJoinedQuizzes.clear()
                 allJoinedQuizzes.addAll(items)
@@ -284,7 +348,9 @@ class JoinQuizActivity : AppCompatActivity() {
             }
     }
 
-    // ---------- REFRESH DATA (direct fetch) ----------
+    // ==================================================================
+    // REFRESH (one-shot fetch)
+    // ==================================================================
     private fun refreshData() {
         val userId = auth.currentUser?.uid ?: return
 
@@ -297,9 +363,6 @@ class JoinQuizActivity : AppCompatActivity() {
                     doc.toObject(JoinedQuiz::class.java)
                 }
 
-                Log.d(TAG, "Refresh – joined quizzes: ${items.size}")
-                items.forEach { Log.d(TAG, "Refresh – Quiz ID: ${it.quizId}, Status: ${it.status}") }
-
                 allJoinedQuizzes.clear()
                 allJoinedQuizzes.addAll(items)
                 applyFilter()
@@ -310,7 +373,9 @@ class JoinQuizActivity : AppCompatActivity() {
             }
     }
 
-    // ---------- UPDATE UI ----------
+    // ==================================================================
+    // UI HELPERS
+    // ==================================================================
     private fun updateUI() {
         if (allJoinedQuizzes.isEmpty()) {
             binding.rvJoinedQuizzes.visibility = android.view.View.GONE
@@ -323,7 +388,6 @@ class JoinQuizActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- APPLY FILTER ----------
     private fun applyFilter() {
         val query = binding.etSearch.text.toString().trim()
         filteredQuizzes.clear()
@@ -353,7 +417,8 @@ class JoinQuizActivity : AppCompatActivity() {
         if (filteredQuizzes.isEmpty()) {
             binding.rvJoinedQuizzes.visibility = android.view.View.GONE
             binding.layoutEmptyState.visibility = android.view.View.VISIBLE
-            binding.btnEmptyJoin.text = if (allJoinedQuizzes.isNotEmpty()) "No matching quizzes" else "Join a Quiz"
+            binding.btnEmptyJoin.text =
+                if (allJoinedQuizzes.isNotEmpty()) "No matching quizzes" else "Join a Quiz"
         } else {
             binding.rvJoinedQuizzes.visibility = android.view.View.VISIBLE
             binding.layoutEmptyState.visibility = android.view.View.GONE

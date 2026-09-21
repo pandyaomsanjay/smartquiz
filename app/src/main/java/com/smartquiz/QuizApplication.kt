@@ -7,10 +7,18 @@ import com.google.firebase.firestore.FirebaseFirestoreSettings
 class QuizApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+
+        // Firestore offline persistence
         val settings = FirebaseFirestoreSettings.Builder()
             .setPersistenceEnabled(true)
             .build()
         FirebaseFirestore.getInstance().firestoreSettings = settings
+
+        // 1. Sweep expired quizzes once at app startup (client-side best-effort)
+        ExpiredQuizArchiver.sweep(this)
+
+        // 2. Schedule periodic background sweep via WorkManager
+        ArchiveSweepWorker.schedule(this)
     }
 }
 

@@ -29,13 +29,16 @@ class QuizCreationActivity : AppCompatActivity() {
     private val calendar = Calendar.getInstance()
     private var deadlineTimestamp = 0L
 
+    // ---------- NEW: start time ----------
+    private var startTimeTimestamp = 0L
+    private val startCalendar = Calendar.getInstance()
+
     // Draft mode flags
     private var isEditingDraft = false
     private var draftQuizId: String? = null
     private var isDraftMode = false
-    private var originalCreatedAt: Long = 0L  // store original creation time
+    private var originalCreatedAt: Long = 0L
 
-    // Debounce for title uniqueness check
     private val titleCheckHandler = Handler(Looper.getMainLooper())
     private var titleCheckRunnable: Runnable? = null
 
@@ -54,7 +57,6 @@ class QuizCreationActivity : AppCompatActivity() {
         db = FirebaseFirestore.getInstance()
         auth = FirebaseAuth.getInstance()
 
-        // Detect if editing a draft
         draftQuizId = intent.getStringExtra("quizId")
         isDraftMode = intent.getBooleanExtra("isDraft", false)
         isEditingDraft = draftQuizId != null && isDraftMode
@@ -64,7 +66,6 @@ class QuizCreationActivity : AppCompatActivity() {
             loadDraftData(draftQuizId!!)
         } else {
             supportActionBar?.title = "Create Quiz"
-            // Default settings for new quiz
             binding.radioPrivate.isChecked = true
             binding.radioFixedOrder.isChecked = true
             binding.switchShowScore.isChecked = true
@@ -74,13 +75,14 @@ class QuizCreationActivity : AppCompatActivity() {
             binding.etPerQuestionTime.setText("00:01:00")
         }
 
-        // UI listeners
+        // Date/time pickers
         binding.etDeadline.setOnClickListener { showDateTimePicker() }
+        binding.etStartTime.setOnClickListener { showStartDateTimePicker() }
+
         binding.btnAddQuestion.setOnClickListener { showAddQuestionDialog(null) }
         binding.btnSaveDraft.setOnClickListener { saveQuizAsDraft() }
         binding.btnSaveQuiz.setOnClickListener { showSaveConfirmation() }
 
-        // Timer type visibility
         binding.radioGroupTimerType.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.radioNoTimer -> {
@@ -100,7 +102,6 @@ class QuizCreationActivity : AppCompatActivity() {
         binding.inputLayoutTotalTime.visibility = View.GONE
         binding.inputLayoutPerQuestionTime.visibility = View.GONE
 
-        // RecyclerView for questions
         adapter = QuestionPreviewAdapter(
             questions = questionsList,
             onEditClick = { question -> showAddQuestionDialog(question) },
@@ -110,7 +111,6 @@ class QuizCreationActivity : AppCompatActivity() {
         binding.rvQuestionPreview.adapter = adapter
         updateQuestionsCount()
 
-        // Title uniqueness validation on focus lost
         binding.etQuizTitle.setOnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) checkTitleDuplicate()
         }
@@ -149,15 +149,21 @@ class QuizCreationActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
-                // Save original creation time for later updates
                 originalCreatedAt = quiz.createdAt
 
-                // Populate UI
                 binding.etQuizTitle.setText(quiz.title)
                 binding.etQuizDescription.setText(quiz.description)
                 if (quiz.visibility == "public") binding.radioPublic.isChecked = true
                 else binding.radioPrivate.isChecked = true
 
+                // Start time
+                startTimeTimestamp = quiz.startTime
+                if (quiz.startTime > 0) {
+                    val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                    binding.etStartTime.setText(fmt.format(Date(quiz.startTime)))
+                }
+
+                // Deadline
                 deadlineTimestamp = quiz.deadline
                 if (quiz.deadline > 0) {
                     val format = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -168,7 +174,6 @@ class QuizCreationActivity : AppCompatActivity() {
                 binding.etNegativeValue.setText(quiz.negativeMarkingValue.toString())
                 binding.switchShowScore.isChecked = quiz.showScoreAfterSubmission
 
-                // Timer type
                 when (quiz.timerType) {
                     "WHOLE_QUIZ" -> {
                         binding.radioWholeQuizTimer.isChecked = true
@@ -183,14 +188,12 @@ class QuizCreationActivity : AppCompatActivity() {
                     else -> binding.radioNoTimer.isChecked = true
                 }
 
-                // Randomization
                 when (quiz.randomizationMode) {
                     "RANDOM_QUESTION_ORDER" -> binding.radioRandomQuestionOrder.isChecked = true
                     "RANDOM_QUESTION_AND_OPTION_ORDER" -> binding.radioRandomQuestionAndOptionOrder.isChecked = true
                     else -> binding.radioFixedOrder.isChecked = true
                 }
 
-                // Load questions with answers
                 loadQuestionsFromFirestore(quizId)
             }
             .addOnFailureListener { e ->
@@ -206,7 +209,6 @@ class QuizCreationActivity : AppCompatActivity() {
                 val loadedQuestions = mutableListOf<Question>()
                 val tasks = questionDocs.map { qDoc ->
                     val q = qDoc.toObject(Question::class.java).apply { questionId = qDoc.id }
-                    // Fetch private answers
                     db.collection("quizzes").document(quizId)
                         .collection("questions_private").document(qDoc.id)
                         .get()
@@ -250,7 +252,7 @@ class QuizCreationActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------------
-    // SAVE AS DRAFT (CREATE or UPDATE)
+    // SAVE AS DRAFT
     // ------------------------------------------------------------------------
     private fun saveQuizAsDraft() {
         val quiz = buildQuiz(status = "DRAFT", generateCode = false)
@@ -263,10 +265,8 @@ class QuizCreationActivity : AppCompatActivity() {
             return
         }
 
-        // If editing an existing draft, UPDATE it – using a map to exclude createdAt
         if (isEditingDraft && draftQuizId != null) {
             val updateMap = buildUpdateMap(quiz, userId, status = "DRAFT")
-            // Do NOT include createdAt – it will stay unchanged
 
             db.collection("quizzes").document(draftQuizId!!)
                 .set(updateMap, SetOptions.merge())
@@ -282,7 +282,6 @@ class QuizCreationActivity : AppCompatActivity() {
             return
         }
 
-        // Otherwise, CREATE a new draft
         val newQuiz = quiz.copy(
             creatorId = userId,
             createdAt = System.currentTimeMillis(),
@@ -292,7 +291,6 @@ class QuizCreationActivity : AppCompatActivity() {
             .addOnSuccessListener { docRef ->
                 draftQuizId = docRef.id
                 isEditingDraft = true
-                // Also store the creation time of this new draft
                 originalCreatedAt = newQuiz.createdAt
                 saveQuestionsToFirestore(docRef.id) {
                     Toast.makeText(this, "Quiz saved as draft successfully", Toast.LENGTH_SHORT).show()
@@ -305,7 +303,7 @@ class QuizCreationActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------------
-    // PUBLISH QUIZ (Convert draft to live)
+    // PUBLISH QUIZ
     // ------------------------------------------------------------------------
     private fun saveQuiz() {
         if (!validateQuiz()) return
@@ -321,7 +319,6 @@ class QuizCreationActivity : AppCompatActivity() {
         }
 
         val updateMap = buildUpdateMap(quiz, userId, status = "PUBLISHED")
-        // Do NOT include createdAt – preserve original
 
         val docRef = if (isEditingDraft && draftQuizId != null) {
             db.collection("quizzes").document(draftQuizId!!)
@@ -350,12 +347,12 @@ class QuizCreationActivity : AppCompatActivity() {
             }
     }
 
-    // Helper to build a map of fields to update (excluding createdAt)
     private fun buildUpdateMap(quiz: Quiz, userId: String, status: String): MutableMap<String, Any> {
         val map = mutableMapOf<String, Any>(
             "title" to quiz.title,
             "description" to quiz.description,
             "visibility" to quiz.visibility,
+            "startTime" to quiz.startTime,                    // NEW
             "deadline" to quiz.deadline,
             "negativeMarking" to quiz.negativeMarking,
             "negativeMarkingValue" to quiz.negativeMarkingValue,
@@ -370,18 +367,15 @@ class QuizCreationActivity : AppCompatActivity() {
             "status" to status,
             "updatedAt" to System.currentTimeMillis(),
             "totalQuestions" to questionsList.size,
-            "creatorId" to userId
+            "creatorId" to userId,
+            "archived" to false                               // NEW
         )
-        // Only include quizCode if not empty
         if (quiz.quizCode.isNotEmpty()) {
             map["quizCode"] = quiz.quizCode
         }
         return map
     }
 
-    // ------------------------------------------------------------------------
-    // BUILD QUIZ OBJECT (does not set createdAt; we handle it outside)
-    // ------------------------------------------------------------------------
     private fun buildQuiz(status: String, generateCode: Boolean): Quiz? {
         val title = binding.etQuizTitle.text.toString().trim()
         if (status != "DRAFT" && title.isEmpty()) {
@@ -432,11 +426,12 @@ class QuizCreationActivity : AppCompatActivity() {
             title = title,
             description = description,
             quizCode = quizCode,
-            creatorId = "", // set later
+            creatorId = "",
             visibility = visibility,
-            createdAt = 0L, // we don't use this in updates; set explicitly on creation
+            createdAt = 0L,
             totalQuestions = questionsList.size,
             timerSeconds = 0,
+            startTime = startTimeTimestamp,          // NEW
             deadline = deadlineTimestamp,
             negativeMarking = negativeMarking,
             negativeMarkingValue = negativeMarkingValue,
@@ -449,15 +444,15 @@ class QuizCreationActivity : AppCompatActivity() {
             randomizationMode = randomizationMode,
             showScoreAfterSubmission = showScoreAfterSubmission,
             status = status,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            archived = false                         // NEW
         )
     }
 
     // ------------------------------------------------------------------------
-    // SAVE QUESTIONS (overwrites old ones)
+    // SAVE QUESTIONS
     // ------------------------------------------------------------------------
     private fun saveQuestionsToFirestore(quizId: String, onComplete: () -> Unit) {
-        // Step 1: Delete all existing questions (public + private)
         db.collection("quizzes").document(quizId).collection("questions")
             .get()
             .addOnSuccessListener { querySnapshot ->
@@ -469,7 +464,6 @@ class QuizCreationActivity : AppCompatActivity() {
                     batch.delete(privateRef)
                 }
                 batch.commit().addOnSuccessListener {
-                    // Step 2: Write new questions
                     writeQuestions(quizId, onComplete)
                 }.addOnFailureListener { e ->
                     Toast.makeText(this, "Error clearing old questions: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -512,16 +506,12 @@ class QuizCreationActivity : AppCompatActivity() {
             }
     }
 
-    // ------------------------------------------------------------------------
-    // HELPER: UNIQUE QUIZ CODE
-    // ------------------------------------------------------------------------
     private fun generateUniqueQuizCode(): String {
-        // In production, check Firestore for uniqueness
         return Random.nextInt(100000, 999999).toString()
     }
 
     // ------------------------------------------------------------------------
-    // BACK BUTTON HANDLING
+    // BACK HANDLING
     // ------------------------------------------------------------------------
     override fun onBackPressed() {
         if (hasUnsavedChanges()) {
@@ -547,8 +537,34 @@ class QuizCreationActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------------
-    // DATE/TIME PICKER
+    // DATE/TIME PICKERS
     // ------------------------------------------------------------------------
+    private fun showStartDateTimePicker() {
+        DatePickerDialog(
+            this,
+            { _, year, month, dayOfMonth ->
+                startCalendar.set(year, month, dayOfMonth)
+                TimePickerDialog(
+                    this,
+                    { _, hourOfDay, minute ->
+                        startCalendar.set(Calendar.HOUR_OF_DAY, hourOfDay)
+                        startCalendar.set(Calendar.MINUTE, minute)
+                        startCalendar.set(Calendar.SECOND, 0)
+                        startTimeTimestamp = startCalendar.timeInMillis
+                        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                        binding.etStartTime.setText(fmt.format(startCalendar.time))
+                    },
+                    startCalendar.get(Calendar.HOUR_OF_DAY),
+                    startCalendar.get(Calendar.MINUTE),
+                    true
+                ).show()
+            },
+            startCalendar.get(Calendar.YEAR),
+            startCalendar.get(Calendar.MONTH),
+            startCalendar.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
     private fun showDateTimePicker() {
         DatePickerDialog(
             this,
@@ -575,7 +591,7 @@ class QuizCreationActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------------
-    // TITLE DUPLICATE CHECK (unchanged)
+    // TITLE DUPLICATE CHECK
     // ------------------------------------------------------------------------
     private fun normalizeTitle(title: String): String {
         return title.trim()
@@ -640,7 +656,7 @@ class QuizCreationActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------------
-    // ADD / EDIT QUESTION DIALOG (unchanged)
+    // ADD / EDIT QUESTION DIALOG
     // ------------------------------------------------------------------------
     private fun showAddQuestionDialog(existingQuestion: Question?) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_add_question, null)
@@ -893,15 +909,13 @@ class QuizCreationActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Save Quiz")
             .setMessage("Are you sure you want to save this quiz?")
-            .setPositiveButton("Yes") { _, _ ->
-                saveQuiz()
-            }
+            .setPositiveButton("Yes") { _, _ -> saveQuiz() }
             .setNegativeButton("No", null)
             .show()
     }
 
     // ------------------------------------------------------------------------
-    // VALIDATION (unchanged)
+    // VALIDATION
     // ------------------------------------------------------------------------
     private fun validateQuiz(): Boolean {
         val title = binding.etQuizTitle.text.toString().trim()
@@ -1008,6 +1022,13 @@ class QuizCreationActivity : AppCompatActivity() {
             }
         }
 
+        // ---------- NEW: start / deadline consistency ----------
+        if (startTimeTimestamp > 0 && startTimeTimestamp >= deadlineTimestamp && deadlineTimestamp > 0) {
+            Toast.makeText(this, "Start time must be before due time", Toast.LENGTH_SHORT).show()
+            binding.etStartTime.error = "Start must be before due"
+            return false
+        }
+
         if (deadlineTimestamp > 0 && deadlineTimestamp <= System.currentTimeMillis()) {
             binding.etDeadline.error = "Deadline must be in the future"
             binding.etDeadline.requestFocus()
@@ -1019,7 +1040,7 @@ class QuizCreationActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------------
-    // HELPERS: TIME PARSING / FORMATTING
+    // HELPERS
     // ------------------------------------------------------------------------
     private fun parseDurationToSeconds(input: String): Long? {
         val parts = input.split(":")

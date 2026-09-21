@@ -49,45 +49,37 @@ class QuizAttemptActivity : AppCompatActivity() {
     private var mediaPlayer: MediaPlayer? = null
     private val TAG = "QuizAttempt"
 
-    // ---------- RANDOMIZATION ----------
     private val questionOrder = mutableListOf<String>()
     private val optionOrderMap = mutableMapOf<String, List<Int>>()
     private var randomizationLoaded = false
 
-    // ---------- STATE ----------
     private val questionStateMap = mutableMapOf<String, QuestionState>()
     private val questionStatesList = mutableListOf<QuestionState>()
     private var gridDialog: AlertDialog? = null
     private lateinit var gridAdapter: QuestionGridAdapter
 
-    // Auto-save debounce
     private val saveHandler = Handler(Looper.getMainLooper())
     private var saveRunnable: Runnable? = null
     private val SAVE_DEBOUNCE_MS = 500L
 
-    // Cheat logging flags
     private var isInForeground = true
     private var userLeftViaSystem = false
     private var isDialogShowing = false
 
-    // Timer state
     private var timerType: String = "NONE"
     private var totalTimeSeconds: Long = 0
     private var timePerQuestionSeconds: Long = 0
     private var quizEndTime: Long = 0L
 
-    // TimerManager
     private lateinit var timerManager: TimerManager
     private var isQuizExpired = false
     private var isQuizSubmitted = false
     private var wholeQuizRemainingSeconds: Long = -1
 
-    // Cheat detection
     private var violationCount = 0
     private var lastViolationTime = 0L
     private val DEBOUNCE_MS = 500L
 
-    // Restored per‑question timer values from Firestore
     private var perQuestionRemainingMap = mutableMapOf<String, Long>()
 
     private val lifecycleObserver = object : DefaultLifecycleObserver {
@@ -440,14 +432,12 @@ class QuizAttemptActivity : AppCompatActivity() {
             return
         }
 
-        // Check if there's an existing attempt first
         val attemptRef = db.collection("quizzes").document(quizId)
             .collection("attempts").document(userId)
         attemptRef.get()
             .addOnSuccessListener { attemptDoc ->
                 if (attemptDoc.exists()) {
                     val status = attemptDoc.getString("status")
-                    // If completed or expired, navigate to result
                     if (status == "Completed" || status == "TIME_EXPIRED" || status == "CHEATING_AUTO_SUBMITTED") {
                         val score = attemptDoc.getLong("score")?.toInt() ?: 0
                         val totalScore = attemptDoc.getLong("totalScore")?.toInt() ?: 0
@@ -464,7 +454,6 @@ class QuizAttemptActivity : AppCompatActivity() {
                         return@addOnSuccessListener
                     }
                 }
-                // If no completed attempt, proceed to load quiz
                 fetchQuizAndQuestions()
             }
             .addOnFailureListener { e ->
@@ -483,6 +472,18 @@ class QuizAttemptActivity : AppCompatActivity() {
                 }
                 quiz = doc.toObject(Quiz::class.java)!!
                 quiz.quizId = doc.id
+
+                // ---------- NEW: lifecycle guard ----------
+                val lifecycle = quiz.computeStatus(QuizTimeUtils.getServerTimeMs())
+                if (lifecycle != QuizLifecycleStatus.LIVE) {
+                    Toast.makeText(
+                        this,
+                        "Quiz is ${lifecycle.label.lowercase()} — cannot start.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    safeFinish()
+                    return@addOnSuccessListener
+                }
 
                 if (quiz.deadline > 0 && System.currentTimeMillis() > quiz.deadline) {
                     Toast.makeText(this, "Quiz expired", Toast.LENGTH_SHORT).show()
@@ -513,7 +514,6 @@ class QuizAttemptActivity : AppCompatActivity() {
                 if (loadedQuestions.isNotEmpty()) {
                     questions.clear()
                     questions.addAll(loadedQuestions)
-                    // Restore attempt from Firestore before starting
                     restoreAttemptFromFirestore()
                     startQuiz()
                 } else {
@@ -720,7 +720,7 @@ class QuizAttemptActivity : AppCompatActivity() {
                     when (timerMode) {
                         TimerManager.TimerMode.WHOLE_QUIZ -> onWholeQuizExpired()
                         TimerManager.TimerMode.PER_QUESTION -> onQuestionTimerExpired()
-                        else -> { /* no‑op */ }
+                        else -> { }
                     }
                 }
             }
@@ -846,7 +846,6 @@ class QuizAttemptActivity : AppCompatActivity() {
         val q = shuffledQuestions[currentIndex]
         binding.tvQuestion.text = q.text
 
-        // Media handling
         if (q.imageUrl.isNotEmpty()) {
             binding.ivQuestionImage.visibility = View.VISIBLE
             Glide.with(this).load(q.imageUrl).into(binding.ivQuestionImage)
@@ -1179,9 +1178,6 @@ class QuizAttemptActivity : AppCompatActivity() {
     private fun updateProgress() {
         val total = shuffledQuestions.size
         val answered = questionStateMap.values.count { it.isAnswered }
-        val bookmarked = questionStateMap.values.count { it.isBookmarked }
-        val reviewed = questionStateMap.values.count { it.isMarkedForReview }
-        val locked = questionStateMap.values.count { it.isLocked }
         val percentage = if (total > 0) (answered * 100 / total) else 0
 
         binding.tvProgressText.text = "$answered/$total"
@@ -1255,7 +1251,7 @@ class QuizAttemptActivity : AppCompatActivity() {
             .show()
     }
 
-    // ---------- SUBMIT QUIZ (with correct answers fetched at submission) ----------
+    // ---------- SUBMIT QUIZ ----------
     private fun submitQuizWithReason(reason: String = "NORMAL") {
         if (isSubmitted) return
         isSubmitted = true
@@ -1281,7 +1277,6 @@ class QuizAttemptActivity : AppCompatActivity() {
             return
         }
 
-        // Fetch correct answers from questions_private (batch)
         fetchCorrectAnswersAndSubmit(userId, totalPossible, reason)
     }
 
@@ -1313,12 +1308,10 @@ class QuizAttemptActivity : AppCompatActivity() {
                         }
                     }
                 }
-                // Now compute final score
                 computeFinalScoreAndSubmit(userId, totalPossible, reason)
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Failed to fetch correct answers: ${e.message}")
-                // Continue without correct answers (score will be 0)
                 computeFinalScoreAndSubmit(userId, totalPossible, reason)
             }
     }
