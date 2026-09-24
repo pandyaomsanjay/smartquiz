@@ -85,7 +85,8 @@ class QuizDetailsActivity : AppCompatActivity() {
                 val visibility = quizDoc.getString("visibility") ?: "private"
                 binding.tvTitle.text = title
                 binding.tvDescription.text = description
-                binding.tvVisibility.text = if (visibility == "public") "🌍 Public Quiz" else "🔒 Private Quiz"
+                binding.tvVisibility.text =
+                    if (visibility == "public") "🌍 Public Quiz" else "🔒 Private Quiz"
             }
 
         db.collection("quizzes").document(joinedQuiz.quizId)
@@ -159,7 +160,9 @@ class QuizDetailsActivity : AppCompatActivity() {
         }
     }
 
-    // ========== PDF Generation (Background) ==========
+    // ================================================================
+    // PDF — Answer Sheet (with scenario support)
+    // ================================================================
 
     private fun generateAnswerSheetPdf() {
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: run {
@@ -198,20 +201,50 @@ class QuizDetailsActivity : AppCompatActivity() {
 
     private fun fetchQuestionsAndGeneratePdf() {
         showProgressDialog("Loading questions...")
-        val questionsMap = mutableMapOf<String, Question>()
+        val flatMap = mutableMapOf<String, Question>()
+        val scenarioTagFor = mutableMapOf<String, String>()
 
         db.collection("quizzes").document(joinedQuiz.quizId)
             .collection("questions")
             .get()
             .addOnSuccessListener { docs ->
                 for (doc in docs) {
-                    val q = doc.toObject(Question::class.java)
-                    q.questionId = doc.id
-                    questionsMap[q.questionId] = q
+                    var q = doc.toObject(Question::class.java).apply { questionId = doc.id }
+
+                    if (q.questionType == "scenario") {
+                        // Rebuild sub-questions from public data
+                        val rawSubs = doc.get("subQuestions") as? List<*>
+                        val subs = rawSubs?.mapNotNull { raw ->
+                            @Suppress("UNCHECKED_CAST")
+                            val m = raw as? Map<String, Any> ?: return@mapNotNull null
+                            Question(
+                                questionId = m["questionId"] as? String ?: "",
+                                text = m["text"] as? String ?: "",
+                                options = (m["options"] as? List<*>)?.mapNotNull { it as? String }
+                                    ?: emptyList(),
+                                questionType = m["questionType"] as? String ?: "radio",
+                                points = (m["points"] as? Long)?.toInt() ?: 1
+                            )
+                        } ?: emptyList()
+                        q = q.copy(subQuestions = subs)
+                    }
+
+                    // Key each question (and each scenario sub-question) by ID
+                    // so the answer lookup is O(1).
+                    if (q.isScenario) {
+                        q.subQuestions.forEach { sub ->
+                            flatMap[sub.questionId] = sub
+                            // Tag every sub-question with its scenario text
+                            // so the PDF can prefix them.
+                            scenarioTagFor[sub.questionId] = q.scenarioText
+                        }
+                    } else {
+                        flatMap[q.questionId] = q
+                    }
                 }
-                // Run PDF generation on background thread
+
                 Thread {
-                    generatePdfWithQuestions(questionsMap)
+                    generatePdfWithQuestions(flatMap, scenarioTagFor)
                 }.start()
             }
             .addOnFailureListener {
@@ -220,7 +253,10 @@ class QuizDetailsActivity : AppCompatActivity() {
             }
     }
 
-    private fun generatePdfWithQuestions(questionsMap: Map<String, Question>) {
+    private fun generatePdfWithQuestions(
+        questionsMap: Map<String, Question>,
+        scenarioTagFor: Map<String, String>
+    ) {
         val answers = answersMap ?: return
         val document = PdfDocument()
         val paint = Paint()
@@ -251,10 +287,46 @@ class QuizDetailsActivity : AppCompatActivity() {
         canvas.drawText("Generated: ${dateFormat.format(Date())}", margin, yPos, paint)
         yPos += 30f
 
+        // Keep track of which scenario we already printed a header for,
+        // so the header is only shown once before its sub-questions.
+        val printedScenarioHeaders = mutableSetOf<String>()
+
         for ((qId, answer) in answers) {
             val question = questionsMap[qId] ?: continue
 
-            // ---- FIX: Convert answer to appropriate type ----
+            // ---------- Scenario header ----------
+            val scenarioText = scenarioTagFor[qId]
+            if (scenarioText != null && printedScenarioHeaders.add(scenarioText)) {
+                if (yPos + 80f > page.info.pageHeight - margin) {
+                    document.finishPage(page)
+                    page = createNewPage(document, paint)
+                    canvas = page.canvas
+                    yPos = margin + 20f
+                    paint.textSize = 14f
+                    paint.isFakeBoldText = true
+                    canvas.drawText("Quiz: $quizTitle (continued)", margin, yPos, paint)
+                    yPos += 30f
+                    paint.isFakeBoldText = false
+                    paint.textSize = 12f
+                }
+
+                paint.color = 0xFF4F46E5.toInt()
+                paint.textSize = 13f
+                paint.isFakeBoldText = true
+                val scenarioLines = splitText(
+                    "Scenario: $scenarioText", paint, pageWidth - 2 * margin
+                )
+                for (line in scenarioLines) {
+                    canvas.drawText(line, margin, yPos, paint)
+                    yPos += lineHeight
+                }
+                paint.isFakeBoldText = false
+                paint.color = 0xFF000000.toInt()
+                paint.textSize = 12f
+                yPos += 6f
+            }
+
+            // ---------- Answer text ----------
             val answerText = when (question.questionType) {
                 "radio" -> {
                     val idx = when (answer) {
@@ -263,7 +335,8 @@ class QuizDetailsActivity : AppCompatActivity() {
                         is Double -> answer.toInt()
                         else -> null
                     }
-                    if (idx != null && idx in question.options.indices) question.options[idx] else "Not answered"
+                    if (idx != null && idx in question.options.indices) question.options[idx]
+                    else "Not answered"
                 }
                 "checkbox" -> {
                     val indices = when (answer) {
@@ -278,15 +351,17 @@ class QuizDetailsActivity : AppCompatActivity() {
                         else -> emptyList()
                     }
                     if (indices.isNotEmpty()) {
-                        indices.mapNotNull { if (it in question.options.indices) question.options[it] else null }
-                            .joinToString(", ")
+                        indices.mapNotNull {
+                            if (it in question.options.indices) question.options[it] else null
+                        }.joinToString(", ")
                     } else "None selected"
                 }
                 "descriptive" -> answer as? String ?: "Not answered"
                 else -> "Not answered"
             }
 
-            val qText = "Q: ${question.text}"
+            val prefix = if (scenarioText != null) "   " else ""
+            val qText = "${prefix}Q: ${question.text}"
             val lines = splitText(qText, paint, pageWidth - 2 * margin)
             for (line in lines) {
                 canvas.drawText(line, margin, yPos, paint)
@@ -295,13 +370,13 @@ class QuizDetailsActivity : AppCompatActivity() {
 
             paint.textSize = 11f
             paint.color = 0xFF4CAF50.toInt()
-            canvas.drawText("   ▶ $answerText", margin, yPos, paint)
+            canvas.drawText("$prefix   ▶ $answerText", margin, yPos, paint)
             yPos += lineHeight + 8f
 
             paint.color = 0xFF000000.toInt()
             paint.textSize = 12f
 
-            // Check page overflow
+            // ---------- Page break check ----------
             if (yPos + 60f > page.info.pageHeight - margin) {
                 document.finishPage(page)
                 page = createNewPage(document, paint)
@@ -318,22 +393,22 @@ class QuizDetailsActivity : AppCompatActivity() {
 
         document.finishPage(page)
 
-        // Post back to UI thread to save and share
         runOnUiThread {
             hideProgressDialog()
             val fileName = "AnswerSheet_${joinedQuiz.quizTitle}_${System.currentTimeMillis()}.pdf"
             val file = File(getExternalFilesDir(null), fileName)
             try {
-                FileOutputStream(file).use { fos ->
-                    document.writeTo(fos)
-                }
+                FileOutputStream(file).use { fos -> document.writeTo(fos) }
                 Toast.makeText(this, "PDF saved: $fileName", Toast.LENGTH_LONG).show()
 
                 val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_TEXT, "Here is my answer sheet for the quiz '${joinedQuiz.quizTitle}'")
+                    putExtra(
+                        Intent.EXTRA_TEXT,
+                        "Here is my answer sheet for the quiz '${joinedQuiz.quizTitle}'"
+                    )
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 startActivity(Intent.createChooser(shareIntent, "Share Answer Sheet"))
@@ -362,15 +437,11 @@ class QuizDetailsActivity : AppCompatActivity() {
             if (paint.measureText(testLine) <= maxWidth) {
                 currentLine = testLine
             } else {
-                if (currentLine.isNotEmpty()) {
-                    lines.add(currentLine)
-                }
+                if (currentLine.isNotEmpty()) lines.add(currentLine)
                 currentLine = word
             }
         }
-        if (currentLine.isNotEmpty()) {
-            lines.add(currentLine)
-        }
+        if (currentLine.isNotEmpty()) lines.add(currentLine)
         return lines
     }
 }

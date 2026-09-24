@@ -130,6 +130,24 @@
                     android:orientation="vertical"
                     android:padding="20dp">
 
+                    <!-- ================================================= -->
+                    <!-- NEW: Scenario context banner                       -->
+                    <!-- Shown above the question whenever the current      -->
+                    <!-- item belongs to a scenario. Hidden otherwise.      -->
+                    <!-- ================================================= -->
+                    <TextView
+                        android:id="@+id/tvScenarioContext"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Scenario"
+                        android:textSize="15sp"
+                        android:textStyle="italic"
+                        android:textColor="@color/text_secondary"
+                        android:background="@color/surface_variant"
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp"
+                        android:visibility="gone" />
+
                     <!-- Question Text -->
                     <TextView
                         android:id="@+id/tvQuestion"

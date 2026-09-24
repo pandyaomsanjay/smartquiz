@@ -60,13 +60,12 @@
                         android:maxLines="1" />
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- Title feedback -->
+                <!-- Title feedback (inline validation) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:layout_marginBottom="16dp">
-
                     <TextView
                         android:id="@+id/tvTitleFeedback"
                         android:layout_width="0dp"
@@ -90,6 +89,31 @@
                         android:layout_height="wrap_content"
                         android:minLines="3" />
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- ===================================================== -->
+                <!-- Configured Total Question Count                         -->
+                <!-- ===================================================== -->
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Total Questions (required)"
+                    android:layout_marginBottom="4dp">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etConfiguredQuestionCount"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number"
+                        android:maxLength="3" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Scenario sub-questions count toward this total. The scenario container itself is not counted."
+                    android:textSize="11sp"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginBottom="16dp" />
 
                 <!-- Quiz Visibility -->
                 <TextView
@@ -260,9 +284,7 @@
                     </RadioGroup>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- ====================================================== -->
-                <!-- NEW: Start Time (added above Deadline)                  -->
-                <!-- ====================================================== -->
+                <!-- Start Time -->
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
@@ -368,6 +390,7 @@
             android:textAppearance="?attr/textAppearanceHeadline3"
             android:layout_marginBottom="16dp" />
 
+        <!-- Add Question Button -->
         <Button
             android:id="@+id/btnAddQuestion"
             android:layout_width="match_parent"
@@ -376,6 +399,7 @@
             android:backgroundTint="@color/accent"
             android:textAppearance="?attr/textAppearanceButton" />
 
+        <!-- Question Count -->
         <TextView
             android:id="@+id/tvQuestionsCount"
             android:layout_width="wrap_content"
@@ -384,6 +408,7 @@
             android:textAppearance="?attr/textAppearanceBody2"
             android:layout_marginTop="8dp" />
 
+        <!-- RecyclerView for Question Preview -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvQuestionPreview"
             android:layout_width="match_parent"
@@ -392,6 +417,7 @@
             android:layout_marginTop="16dp"
             android:visibility="gone" />
 
+        <!-- Save as Draft -->
         <Button
             android:id="@+id/btnSaveDraft"
             android:layout_width="match_parent"
@@ -401,6 +427,7 @@
             android:backgroundTint="@color/accent"
             android:textAppearance="?attr/textAppearanceButton" />
 
+        <!-- Save Quiz Button -->
         <Button
             android:id="@+id/btnSaveQuiz"
             android:layout_width="match_parent"

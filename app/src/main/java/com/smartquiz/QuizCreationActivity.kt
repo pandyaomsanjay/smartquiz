@@ -29,7 +29,7 @@ class QuizCreationActivity : AppCompatActivity() {
     private val calendar = Calendar.getInstance()
     private var deadlineTimestamp = 0L
 
-    // ---------- NEW: start time ----------
+    // Start time
     private var startTimeTimestamp = 0L
     private val startCalendar = Calendar.getInstance()
 
@@ -38,6 +38,9 @@ class QuizCreationActivity : AppCompatActivity() {
     private var draftQuizId: String? = null
     private var isDraftMode = false
     private var originalCreatedAt: Long = 0L
+
+    // ---------- Scenario editor state ----------
+    private val pendingSubQuestions = mutableListOf<Question>()
 
     private val titleCheckHandler = Handler(Looper.getMainLooper())
     private var titleCheckRunnable: Runnable? = null
@@ -83,6 +86,25 @@ class QuizCreationActivity : AppCompatActivity() {
         binding.btnSaveDraft.setOnClickListener { saveQuizAsDraft() }
         binding.btnSaveQuiz.setOnClickListener { showSaveConfirmation() }
 
+        // NEW: live update of "Questions added: X / Y required" while typing.
+        binding.etConfiguredQuestionCount.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                updateQuestionsCount()
+            }
+        })
+
+        // NEW: clamp to a positive integer on focus lost.
+        binding.etConfiguredQuestionCount.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                val txt = binding.etConfiguredQuestionCount.text.toString().trim()
+                if (txt.isEmpty() || (txt.toIntOrNull() ?: 0) <= 0) {
+                    binding.etConfiguredQuestionCount.setText("")
+                }
+            }
+        }
+
         binding.radioGroupTimerType.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.radioNoTimer -> {
@@ -125,9 +147,7 @@ class QuizCreationActivity : AppCompatActivity() {
     private fun safeFinish() {
         if (!isFinishing && !isDestroyed) {
             Handler(Looper.getMainLooper()).post {
-                if (!isFinishing && !isDestroyed) {
-                    finish()
-                }
+                if (!isFinishing && !isDestroyed) finish()
             }
         }
     }
@@ -153,17 +173,23 @@ class QuizCreationActivity : AppCompatActivity() {
 
                 binding.etQuizTitle.setText(quiz.title)
                 binding.etQuizDescription.setText(quiz.description)
+
+                // NEW: restore configured question count.
+                if (quiz.configuredQuestionCount > 0) {
+                    binding.etConfiguredQuestionCount.setText(
+                        quiz.configuredQuestionCount.toString()
+                    )
+                }
+
                 if (quiz.visibility == "public") binding.radioPublic.isChecked = true
                 else binding.radioPrivate.isChecked = true
 
-                // Start time
                 startTimeTimestamp = quiz.startTime
                 if (quiz.startTime > 0) {
                     val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                     binding.etStartTime.setText(fmt.format(Date(quiz.startTime)))
                 }
 
-                // Deadline
                 deadlineTimestamp = quiz.deadline
                 if (quiz.deadline > 0) {
                     val format = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -208,28 +234,78 @@ class QuizCreationActivity : AppCompatActivity() {
             .addOnSuccessListener { questionDocs ->
                 val loadedQuestions = mutableListOf<Question>()
                 val tasks = questionDocs.map { qDoc ->
-                    val q = qDoc.toObject(Question::class.java).apply { questionId = qDoc.id }
+                    var q = qDoc.toObject(Question::class.java).apply { questionId = qDoc.id }
+
+                    // Reconstruct scenario sub-questions
+                    if (q.questionType == "scenario") {
+                        val rawSubs = qDoc.get("subQuestions") as? List<*>
+                        val subs = rawSubs?.mapNotNull { raw ->
+                            @Suppress("UNCHECKED_CAST")
+                            val m = raw as? Map<String, Any> ?: return@mapNotNull null
+                            Question(
+                                questionId = m["questionId"] as? String ?: "",
+                                text = m["text"] as? String ?: "",
+                                options = (m["options"] as? List<*>)?.mapNotNull { it as? String }
+                                    ?: emptyList(),
+                                questionType = m["questionType"] as? String ?: "radio",
+                                points = (m["points"] as? Long)?.toInt() ?: 1,
+                                imageUrl = m["imageUrl"] as? String ?: "",
+                                audioUrl = m["audioUrl"] as? String ?: "",
+                                videoUrl = m["videoUrl"] as? String ?: ""
+                            )
+                        } ?: emptyList()
+                        q = q.copy(subQuestions = subs)
+                    }
+
+                    // Fetch private answers
                     db.collection("quizzes").document(quizId)
                         .collection("questions_private").document(qDoc.id)
                         .get()
                         .continueWith { task ->
                             if (task.isSuccessful && task.result.exists()) {
                                 val data = task.result
-                                when (q.questionType) {
-                                    "radio" -> q.correctAnswerIndex =
-                                        data.getLong("correctAnswerIndex")?.toInt() ?: 0
-                                    "checkbox" -> {
-                                        val rawList = data.get("correctAnswerIndices") as? List<*>
-                                        q.correctAnswerIndices = rawList?.mapNotNull {
-                                            when (it) {
-                                                is Int -> it
-                                                is Long -> it.toInt()
-                                                else -> null
-                                            }
-                                        } ?: emptyList()
+
+                                if (q.questionType == "scenario") {
+                                    @Suppress("UNCHECKED_CAST")
+                                    val answersMap = data.get("subAnswers")
+                                            as? Map<String, Map<String, Any>>
+                                    val merged = q.subQuestions.map { sub ->
+                                        val a = answersMap?.get(sub.questionId)
+                                        when (sub.questionType) {
+                                            "radio" -> sub.copy(
+                                                correctAnswerIndex = (a?.get("correctAnswerIndex")
+                                                        as? Long)?.toInt() ?: 0
+                                            )
+                                            "checkbox" -> sub.copy(
+                                                correctAnswerIndices = (a?.get("correctAnswerIndices")
+                                                        as? List<*>)?.mapNotNull {
+                                                    (it as? Long)?.toInt()
+                                                } ?: emptyList()
+                                            )
+                                            else -> sub.copy(
+                                                correctAnswerText =
+                                                    a?.get("correctAnswerText") as? String ?: ""
+                                            )
+                                        }
                                     }
-                                    "descriptive" -> q.correctAnswerText =
-                                        data.getString("correctAnswerText") ?: ""
+                                    q = q.copy(subQuestions = merged)
+                                } else {
+                                    when (q.questionType) {
+                                        "radio" -> q.correctAnswerIndex =
+                                            data.getLong("correctAnswerIndex")?.toInt() ?: 0
+                                        "checkbox" -> {
+                                            val rawList = data.get("correctAnswerIndices") as? List<*>
+                                            q.correctAnswerIndices = rawList?.mapNotNull {
+                                                when (it) {
+                                                    is Int -> it
+                                                    is Long -> it.toInt()
+                                                    else -> null
+                                                }
+                                            } ?: emptyList()
+                                        }
+                                        "descriptive" -> q.correctAnswerText =
+                                            data.getString("correctAnswerText") ?: ""
+                                    }
                                 }
                             }
                             q
@@ -352,7 +428,7 @@ class QuizCreationActivity : AppCompatActivity() {
             "title" to quiz.title,
             "description" to quiz.description,
             "visibility" to quiz.visibility,
-            "startTime" to quiz.startTime,                    // NEW
+            "startTime" to quiz.startTime,
             "deadline" to quiz.deadline,
             "negativeMarking" to quiz.negativeMarking,
             "negativeMarkingValue" to quiz.negativeMarkingValue,
@@ -366,9 +442,10 @@ class QuizCreationActivity : AppCompatActivity() {
             "showScoreAfterSubmission" to quiz.showScoreAfterSubmission,
             "status" to status,
             "updatedAt" to System.currentTimeMillis(),
-            "totalQuestions" to questionsList.size,
+            "totalQuestions" to questionsList.sumOf { it.questionCount() },
+            "configuredQuestionCount" to (binding.etConfiguredQuestionCount.text.toString().toIntOrNull() ?: 0),
             "creatorId" to userId,
-            "archived" to false                               // NEW
+            "archived" to false
         )
         if (quiz.quizCode.isNotEmpty()) {
             map["quizCode"] = quiz.quizCode
@@ -422,6 +499,9 @@ class QuizCreationActivity : AppCompatActivity() {
             ""
         }
 
+        val configuredCount = binding.etConfiguredQuestionCount.text.toString().toIntOrNull() ?: 0
+        val actualCount = questionsList.sumOf { it.questionCount() }
+
         return Quiz(
             title = title,
             description = description,
@@ -429,15 +509,24 @@ class QuizCreationActivity : AppCompatActivity() {
             creatorId = "",
             visibility = visibility,
             createdAt = 0L,
-            totalQuestions = questionsList.size,
+            totalQuestions = actualCount,
             timerSeconds = 0,
-            startTime = startTimeTimestamp,          // NEW
+            startTime = startTimeTimestamp,
             deadline = deadlineTimestamp,
             negativeMarking = negativeMarking,
             negativeMarkingValue = negativeMarkingValue,
-            hasImageQuestions = questionsList.any { it.imageUrl.isNotEmpty() },
-            hasAudioQuestions = questionsList.any { it.audioUrl.isNotEmpty() },
-            hasVideoQuestions = questionsList.any { it.videoUrl.isNotEmpty() },
+            hasImageQuestions = questionsList.any {
+                if (it.isScenario) it.subQuestions.any { s -> s.imageUrl.isNotEmpty() }
+                else it.imageUrl.isNotEmpty()
+            },
+            hasAudioQuestions = questionsList.any {
+                if (it.isScenario) it.subQuestions.any { s -> s.audioUrl.isNotEmpty() }
+                else it.audioUrl.isNotEmpty()
+            },
+            hasVideoQuestions = questionsList.any {
+                if (it.isScenario) it.subQuestions.any { s -> s.videoUrl.isNotEmpty() }
+                else it.videoUrl.isNotEmpty()
+            },
             timerType = timerType,
             totalTimeSeconds = totalTimeSeconds,
             timePerQuestionSeconds = perQuestionSeconds,
@@ -445,7 +534,8 @@ class QuizCreationActivity : AppCompatActivity() {
             showScoreAfterSubmission = showScoreAfterSubmission,
             status = status,
             updatedAt = System.currentTimeMillis(),
-            archived = false                         // NEW
+            archived = false,
+            configuredQuestionCount = configuredCount
         )
     }
 
@@ -479,26 +569,58 @@ class QuizCreationActivity : AppCompatActivity() {
         for (q in questionsList) {
             val publicRef = db.collection("quizzes").document(quizId)
                 .collection("questions").document()
-            val publicData = mapOf(
-                "text" to q.text,
-                "options" to q.options,
-                "questionType" to q.questionType,
-                "points" to q.points,
-                "imageUrl" to q.imageUrl,
-                "audioUrl" to q.audioUrl,
-                "videoUrl" to q.videoUrl
-            )
-            batch.set(publicRef, publicData)
-
             val privateRef = db.collection("quizzes").document(quizId)
                 .collection("questions_private").document(publicRef.id)
-            val privateData = when (q.questionType) {
-                "radio" -> mapOf("correctAnswerIndex" to q.correctAnswerIndex)
-                "checkbox" -> mapOf("correctAnswerIndices" to q.correctAnswerIndices)
-                "descriptive" -> mapOf("correctAnswerText" to q.correctAnswerText)
-                else -> emptyMap<String, Any>()
+
+            if (q.isScenario) {
+                // ---------- Public scenario doc (no correct answers) ----------
+                val publicSubs = q.subQuestions.map { sub ->
+                    mapOf(
+                        "questionId" to sub.questionId,
+                        "text" to sub.text,
+                        "options" to sub.options,
+                        "questionType" to sub.questionType,
+                        "points" to sub.points,
+                        "imageUrl" to sub.imageUrl,
+                        "audioUrl" to sub.audioUrl,
+                        "videoUrl" to sub.videoUrl
+                    )
+                }
+                batch.set(publicRef, mapOf(
+                    "questionType" to "scenario",
+                    "scenarioText" to q.scenarioText,
+                    "subQuestions" to publicSubs,
+                    "points" to q.totalPoints()
+                ))
+
+                // ---------- Private sub-answers keyed by sub-questionId ----------
+                val privateAnswers = q.subQuestions.associate { sub ->
+                    sub.questionId to when (sub.questionType) {
+                        "radio" -> mapOf("correctAnswerIndex" to sub.correctAnswerIndex)
+                        "checkbox" -> mapOf("correctAnswerIndices" to sub.correctAnswerIndices)
+                        else -> mapOf("correctAnswerText" to sub.correctAnswerText)
+                    }
+                }
+                batch.set(privateRef, mapOf("subAnswers" to privateAnswers))
+            } else {
+                // ---------- Normal question ----------
+                batch.set(publicRef, mapOf(
+                    "text" to q.text,
+                    "options" to q.options,
+                    "questionType" to q.questionType,
+                    "points" to q.points,
+                    "imageUrl" to q.imageUrl,
+                    "audioUrl" to q.audioUrl,
+                    "videoUrl" to q.videoUrl
+                ))
+                val privateData = when (q.questionType) {
+                    "radio" -> mapOf("correctAnswerIndex" to q.correctAnswerIndex)
+                    "checkbox" -> mapOf("correctAnswerIndices" to q.correctAnswerIndices)
+                    "descriptive" -> mapOf("correctAnswerText" to q.correctAnswerText)
+                    else -> emptyMap<String, Any>()
+                }
+                batch.set(privateRef, privateData)
             }
-            batch.set(privateRef, privateData)
         }
         batch.commit().addOnSuccessListener { onComplete() }
             .addOnFailureListener { e ->
@@ -656,9 +778,15 @@ class QuizCreationActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------------
-    // ADD / EDIT QUESTION DIALOG
+    // ADD / EDIT QUESTION DIALOG — routes SCENARIO to the scenario editor
     // ------------------------------------------------------------------------
     private fun showAddQuestionDialog(existingQuestion: Question?) {
+        // If editing an existing scenario, jump straight to the scenario editor.
+        if (existingQuestion?.isScenario == true) {
+            showAddScenarioDialog(existingQuestion)
+            return
+        }
+
         val dialogView = layoutInflater.inflate(R.layout.dialog_add_question, null)
         val etQuestionText = dialogView.findViewById<EditText>(R.id.etQuestionText)
         val etOption1 = dialogView.findViewById<EditText>(R.id.etOption1)
@@ -740,6 +868,7 @@ class QuizCreationActivity : AppCompatActivity() {
             }
         }
 
+        // The spinner contains Radio / Checkbox / Descriptive / Scenario.
         spinnerType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 when (position) {
@@ -764,15 +893,34 @@ class QuizCreationActivity : AppCompatActivity() {
                         spinnerCorrect.visibility = View.GONE
                         llCorrectCheckbox.visibility = View.GONE
                     }
+                    3 -> {
+                        // Scenario — hide all sub-fields; editor opens on submit.
+                        llOptions.visibility = View.GONE
+                        llDescriptive.visibility = View.GONE
+                        tvCorrectRadio.visibility = View.GONE
+                        spinnerCorrect.visibility = View.GONE
+                        llCorrectCheckbox.visibility = View.GONE
+                        Toast.makeText(
+                            this@QuizCreationActivity,
+                            "Press Add/Update to open the Scenario editor",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle(if (existingQuestion != null) "Edit Question" else "Add Question")
             .setView(dialogView)
             .setPositiveButton(if (existingQuestion != null) "Update" else "Add") { _, _ ->
+                // Route to scenario editor if the user chose Scenario.
+                if (spinnerType.selectedItemPosition == 3) {
+                    dialogView.post { showAddScenarioDialog(null) }
+                    return@setPositiveButton
+                }
+
                 val text = etQuestionText.text.toString().trim()
                 val type = when (spinnerType.selectedItemPosition) {
                     0 -> "radio"
@@ -800,7 +948,8 @@ class QuizCreationActivity : AppCompatActivity() {
                         val correctIndex = spinnerCorrect.selectedItemPosition
                         if (text.isNotBlank() && options.all { it.isNotBlank() }) {
                             val newQuestion = Question(
-                                questionId = System.currentTimeMillis().toString(),
+                                questionId = existingQuestion?.questionId
+                                    ?: System.currentTimeMillis().toString(),
                                 text = text,
                                 options = options,
                                 questionType = type,
@@ -829,7 +978,8 @@ class QuizCreationActivity : AppCompatActivity() {
                         if (cbCorrect4.isChecked) correctIndices.add(3)
                         if (text.isNotBlank() && options.all { it.isNotBlank() } && correctIndices.isNotEmpty()) {
                             val newQuestion = Question(
-                                questionId = System.currentTimeMillis().toString(),
+                                questionId = existingQuestion?.questionId
+                                    ?: System.currentTimeMillis().toString(),
                                 text = text,
                                 options = options,
                                 questionType = type,
@@ -848,7 +998,8 @@ class QuizCreationActivity : AppCompatActivity() {
                         val correctText = etCorrectAnswerText.text.toString().trim()
                         if (text.isNotBlank() && correctText.isNotBlank()) {
                             val newQuestion = Question(
-                                questionId = System.currentTimeMillis().toString(),
+                                questionId = existingQuestion?.questionId
+                                    ?: System.currentTimeMillis().toString(),
                                 text = text,
                                 options = emptyList(),
                                 questionType = type,
@@ -866,9 +1017,296 @@ class QuizCreationActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.show()
+    }
+
+    // ------------------------------------------------------------------------
+    // SCENARIO EDITOR
+    // ------------------------------------------------------------------------
+    private fun showAddScenarioDialog(existing: Question?) {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_add_scenario, null)
+        val etScenarioText = dialogView.findViewById<EditText>(R.id.etScenarioText)
+        val llSub = dialogView.findViewById<LinearLayout>(R.id.llSubQuestions)
+        val btnAddSub = dialogView.findViewById<Button>(R.id.btnAddSubQuestion)
+        val tvCount = dialogView.findViewById<TextView>(R.id.tvScenarioCount)
+
+        pendingSubQuestions.clear()
+        if (existing?.isScenario == true) {
+            etScenarioText.setText(existing.scenarioText)
+            pendingSubQuestions.addAll(existing.subQuestions)
+        }
+
+        fun refreshList() {
+            llSub.removeAllViews()
+            pendingSubQuestions.forEachIndexed { index, sub ->
+                val item = layoutInflater.inflate(
+                    R.layout.item_scenario_sub_question, llSub, false
+                )
+                item.findViewById<TextView>(R.id.tvSubIndex).text = "Question ${index + 1}"
+                item.findViewById<TextView>(R.id.tvSubType).text = when (sub.questionType) {
+                    "radio" -> "Radio (Single Choice)"
+                    "checkbox" -> "Checkbox (Multiple Choice)"
+                    else -> "Descriptive"
+                }
+                item.findViewById<TextView>(R.id.tvSubText).text = sub.text
+                item.findViewById<ImageButton>(R.id.btnEditSub).setOnClickListener {
+                    showSubQuestionDialog(index) { refreshList() }
+                }
+                item.findViewById<ImageButton>(R.id.btnDeleteSub).setOnClickListener {
+                    pendingSubQuestions.removeAt(index)
+                    refreshList()
+                    tvCount.text = "Questions added: ${pendingSubQuestions.size}"
+                }
+                llSub.addView(item)
+            }
+            tvCount.text = "Questions added: ${pendingSubQuestions.size}"
+        }
+
+        refreshList()
+
+        btnAddSub.setOnClickListener {
+            showSubQuestionDialog(null) { refreshList() }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (existing != null) "Edit Scenario" else "Add Scenario")
+            .setView(dialogView)
+            .setPositiveButton(if (existing != null) "Update" else "Add") { _, _ ->
+                val text = etScenarioText.text.toString().trim()
+                if (text.isBlank()) {
+                    Toast.makeText(this, "Scenario text is required", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (pendingSubQuestions.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        "Add at least one question to the scenario",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setPositiveButton
+                }
+                val scenario = Question(
+                    questionId = existing?.questionId ?: System.currentTimeMillis().toString(),
+                    text = "",
+                    options = emptyList(),
+                    questionType = "scenario",
+                    points = 0,
+                    scenarioText = text,
+                    subQuestions = pendingSubQuestions.toList()
+                )
+                addOrUpdateQuestion(scenario, existing)
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 
+    /**
+     * Modal to add/edit a single sub-question inside the scenario editor.
+     */
+    private fun showSubQuestionDialog(editIndex: Int?, onDone: () -> Unit) {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_add_question, null)
+        val etQuestionText = dialogView.findViewById<EditText>(R.id.etQuestionText)
+        val etOption1 = dialogView.findViewById<EditText>(R.id.etOption1)
+        val etOption2 = dialogView.findViewById<EditText>(R.id.etOption2)
+        val etOption3 = dialogView.findViewById<EditText>(R.id.etOption3)
+        val etOption4 = dialogView.findViewById<EditText>(R.id.etOption4)
+        val spinnerType = dialogView.findViewById<Spinner>(R.id.spinnerQuestionType)
+        val spinnerCorrect = dialogView.findViewById<Spinner>(R.id.spinnerCorrect)
+        val llOptions = dialogView.findViewById<LinearLayout>(R.id.llOptionsContainer)
+        val llDescriptive = dialogView.findViewById<LinearLayout>(R.id.llDescriptiveContainer)
+        val llCorrectCheckbox = dialogView.findViewById<LinearLayout>(R.id.llCorrectCheckbox)
+        val tvCorrectRadio = dialogView.findViewById<TextView>(R.id.tvCorrectRadio)
+        val cbCorrect1 = dialogView.findViewById<CheckBox>(R.id.cbCorrect1)
+        val cbCorrect2 = dialogView.findViewById<CheckBox>(R.id.cbCorrect2)
+        val cbCorrect3 = dialogView.findViewById<CheckBox>(R.id.cbCorrect3)
+        val cbCorrect4 = dialogView.findViewById<CheckBox>(R.id.cbCorrect4)
+        val etCorrectAnswerText = dialogView.findViewById<EditText>(R.id.etCorrectAnswerText)
+        val etPoints = dialogView.findViewById<EditText>(R.id.etPoints)
+        val etImageUrl = dialogView.findViewById<EditText>(R.id.etImageUrl)
+        val etAudioUrl = dialogView.findViewById<EditText>(R.id.etAudioUrl)
+        val etVideoUrl = dialogView.findViewById<EditText>(R.id.etVideoUrl)
+
+        // Restrict spinner to Radio / Checkbox / Descriptive only.
+        val subTypes = resources.getStringArray(R.array.sub_question_types)
+        val subAdapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_item, subTypes
+        )
+        subAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerType.adapter = subAdapter
+
+        val existing = editIndex?.let { pendingSubQuestions.getOrNull(it) }
+        if (existing != null) {
+            etQuestionText.setText(existing.text)
+            spinnerType.setSelection(
+                when (existing.questionType) {
+                    "radio" -> 0
+                    "checkbox" -> 1
+                    else -> 2
+                }
+            )
+            existing.options.getOrNull(0)?.let { etOption1.setText(it) }
+            existing.options.getOrNull(1)?.let { etOption2.setText(it) }
+            existing.options.getOrNull(2)?.let { etOption3.setText(it) }
+            existing.options.getOrNull(3)?.let { etOption4.setText(it) }
+            when (existing.questionType) {
+                "radio" -> spinnerCorrect.setSelection(existing.correctAnswerIndex)
+                "checkbox" -> existing.correctAnswerIndices.forEach {
+                    when (it) {
+                        0 -> cbCorrect1.isChecked = true
+                        1 -> cbCorrect2.isChecked = true
+                        2 -> cbCorrect3.isChecked = true
+                        3 -> cbCorrect4.isChecked = true
+                    }
+                }
+                "descriptive" -> etCorrectAnswerText.setText(existing.correctAnswerText)
+            }
+            etPoints.setText(existing.points.toString())
+            etImageUrl.setText(existing.imageUrl)
+            etAudioUrl.setText(existing.audioUrl)
+            etVideoUrl.setText(existing.videoUrl)
+        }
+
+        spinnerType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, position: Int, id: Long) {
+                when (position) {
+                    0 -> {
+                        llOptions.visibility = View.VISIBLE
+                        llDescriptive.visibility = View.GONE
+                        tvCorrectRadio.visibility = View.VISIBLE
+                        spinnerCorrect.visibility = View.VISIBLE
+                        llCorrectCheckbox.visibility = View.GONE
+                    }
+                    1 -> {
+                        llOptions.visibility = View.VISIBLE
+                        llDescriptive.visibility = View.GONE
+                        tvCorrectRadio.visibility = View.GONE
+                        spinnerCorrect.visibility = View.GONE
+                        llCorrectCheckbox.visibility = View.VISIBLE
+                    }
+                    2 -> {
+                        llOptions.visibility = View.GONE
+                        llDescriptive.visibility = View.VISIBLE
+                        tvCorrectRadio.visibility = View.GONE
+                        spinnerCorrect.visibility = View.GONE
+                        llCorrectCheckbox.visibility = View.GONE
+                    }
+                }
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (existing != null) "Edit Sub-Question" else "Add Sub-Question")
+            .setView(dialogView)
+            .setPositiveButton(if (existing != null) "Update" else "Add") { _, _ ->
+                val text = etQuestionText.text.toString().trim()
+                val type = when (spinnerType.selectedItemPosition) {
+                    0 -> "radio"
+                    1 -> "checkbox"
+                    else -> "descriptive"
+                }
+                val points = etPoints.text.toString().toIntOrNull() ?: 0
+                if (text.isBlank() || points <= 0) {
+                    Toast.makeText(this, "Fill question text and points", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
+                when (type) {
+                    "radio" -> {
+                        val opts = listOf(
+                            etOption1.text.toString().trim(),
+                            etOption2.text.toString().trim(),
+                            etOption3.text.toString().trim(),
+                            etOption4.text.toString().trim()
+                        )
+                        if (opts.any { it.isBlank() }) {
+                            Toast.makeText(this, "Fill all options", Toast.LENGTH_SHORT).show()
+                            return@setPositiveButton
+                        }
+                        val q = Question(
+                            questionId = existing?.questionId
+                                ?: "sub_${System.currentTimeMillis()}_${(0..9999).random()}",
+                            text = text,
+                            options = opts,
+                            questionType = "radio",
+                            correctAnswerIndex = spinnerCorrect.selectedItemPosition,
+                            points = points,
+                            imageUrl = etImageUrl.text.toString().trim(),
+                            audioUrl = etAudioUrl.text.toString().trim(),
+                            videoUrl = etVideoUrl.text.toString().trim()
+                        )
+                        if (editIndex == null) pendingSubQuestions.add(q)
+                        else pendingSubQuestions[editIndex] = q
+                        onDone()
+                    }
+                    "checkbox" -> {
+                        val opts = listOf(
+                            etOption1.text.toString().trim(),
+                            etOption2.text.toString().trim(),
+                            etOption3.text.toString().trim(),
+                            etOption4.text.toString().trim()
+                        )
+                        val correct = mutableListOf<Int>()
+                        if (cbCorrect1.isChecked) correct.add(0)
+                        if (cbCorrect2.isChecked) correct.add(1)
+                        if (cbCorrect3.isChecked) correct.add(2)
+                        if (cbCorrect4.isChecked) correct.add(3)
+                        if (opts.any { it.isBlank() } || correct.isEmpty()) {
+                            Toast.makeText(
+                                this, "Fill options and pick at least one correct",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@setPositiveButton
+                        }
+                        val q = Question(
+                            questionId = existing?.questionId
+                                ?: "sub_${System.currentTimeMillis()}_${(0..9999).random()}",
+                            text = text,
+                            options = opts,
+                            questionType = "checkbox",
+                            correctAnswerIndices = correct,
+                            points = points,
+                            imageUrl = etImageUrl.text.toString().trim(),
+                            audioUrl = etAudioUrl.text.toString().trim(),
+                            videoUrl = etVideoUrl.text.toString().trim()
+                        )
+                        if (editIndex == null) pendingSubQuestions.add(q)
+                        else pendingSubQuestions[editIndex] = q
+                        onDone()
+                    }
+                    else -> {
+                        val correctText = etCorrectAnswerText.text.toString().trim()
+                        if (correctText.isBlank()) {
+                            Toast.makeText(this, "Enter correct answer", Toast.LENGTH_SHORT).show()
+                            return@setPositiveButton
+                        }
+                        val q = Question(
+                            questionId = existing?.questionId
+                                ?: "sub_${System.currentTimeMillis()}_${(0..9999).random()}",
+                            text = text,
+                            options = emptyList(),
+                            questionType = "descriptive",
+                            correctAnswerText = correctText,
+                            points = points,
+                            imageUrl = etImageUrl.text.toString().trim(),
+                            audioUrl = etAudioUrl.text.toString().trim(),
+                            videoUrl = etVideoUrl.text.toString().trim()
+                        )
+                        if (editIndex == null) pendingSubQuestions.add(q)
+                        else pendingSubQuestions[editIndex] = q
+                        onDone()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ------------------------------------------------------------------------
+    // ADD / UPDATE / DELETE
+    // ------------------------------------------------------------------------
     private fun addOrUpdateQuestion(newQuestion: Question, existingQuestion: Question?) {
         if (existingQuestion != null) {
             val index = questionsList.indexOfFirst { it.questionId == existingQuestion.questionId }
@@ -880,13 +1318,22 @@ class QuizCreationActivity : AppCompatActivity() {
         }
         updateQuestionsCount()
         adapter.updateList(questionsList)
-        Toast.makeText(this, if (existingQuestion != null) "Question updated" else "Question added", Toast.LENGTH_SHORT).show()
+        Toast.makeText(
+            this,
+            if (existingQuestion != null) "Question updated" else "Question added",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun deleteQuestion(question: Question) {
         AlertDialog.Builder(this)
             .setTitle("Delete Question")
-            .setMessage("Are you sure you want to delete this question?")
+            .setMessage(
+                if (question.isScenario)
+                    "Are you sure you want to delete this scenario and all its sub-questions?"
+                else
+                    "Are you sure you want to delete this question?"
+            )
             .setPositiveButton("Delete") { _, _ ->
                 questionsList.removeAll { it.questionId == question.questionId }
                 updateQuestionsCount()
@@ -897,9 +1344,24 @@ class QuizCreationActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * Updates the "Questions added: N" label.
+     * Counts actual child questions (scenario sub-questions + normal questions).
+     * The scenario container itself is not counted.
+     * Also compares against the configured total and appends a hint.
+     */
     private fun updateQuestionsCount() {
-        binding.tvQuestionsCount.text = "Questions added: ${questionsList.size}"
-        binding.rvQuestionPreview.visibility = if (questionsList.isEmpty()) View.GONE else View.VISIBLE
+        val actual = questionsList.sumOf { it.questionCount() }
+        val configured = binding.etConfiguredQuestionCount.text.toString().toIntOrNull() ?: 0
+
+        val label = if (configured > 0) {
+            "Questions added: $actual / $configured required"
+        } else {
+            "Questions added: $actual"
+        }
+        binding.tvQuestionsCount.text = label
+        binding.rvQuestionPreview.visibility =
+            if (questionsList.isEmpty()) View.GONE else View.VISIBLE
     }
 
     // ------------------------------------------------------------------------
@@ -940,48 +1402,118 @@ class QuizCreationActivity : AppCompatActivity() {
             return false
         }
 
+        // ---------- NEW: configured question count validation ----------
+        val configuredCount = binding.etConfiguredQuestionCount.text.toString().toIntOrNull() ?: 0
+        if (configuredCount <= 0) {
+            binding.etConfiguredQuestionCount.error = "Enter the total number of questions"
+            binding.etConfiguredQuestionCount.requestFocus()
+            Toast.makeText(
+                this,
+                "Please enter the total number of questions for this quiz.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return false
+        }
+
         if (questionsList.isEmpty()) {
             Toast.makeText(this, "Add at least one question", Toast.LENGTH_SHORT).show()
             return false
         }
 
-        for (q in questionsList) {
-            if (q.text.isBlank()) {
-                Toast.makeText(this, "One or more questions have empty text", Toast.LENGTH_SHORT).show()
-                return false
-            }
-            when (q.questionType) {
-                "radio" -> {
-                    if (q.correctAnswerIndex < 0 || q.correctAnswerIndex >= q.options.size) {
-                        Toast.makeText(this, "One or more questions have invalid correct answer", Toast.LENGTH_SHORT).show()
+        // ---------- Validate every question (normal + scenario sub-questions) ----------
+        for (entry in questionsList) {
+
+            if (entry.isScenario) {
+                if (entry.scenarioText.isBlank()) {
+                    Toast.makeText(this, "A scenario is missing its text", Toast.LENGTH_SHORT).show()
+                    return false
+                }
+                if (entry.subQuestions.isEmpty()) {
+                    Toast.makeText(this, "Each scenario needs at least one question", Toast.LENGTH_SHORT).show()
+                    return false
+                }
+                for (sub in entry.subQuestions) {
+                    if (sub.text.isBlank()) {
+                        Toast.makeText(this, "A scenario sub-question is empty", Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                    when (sub.questionType) {
+                        "radio" -> if (sub.correctAnswerIndex !in sub.options.indices) {
+                            Toast.makeText(this, "Invalid correct option in a sub-question", Toast.LENGTH_SHORT).show()
+                            return false
+                        }
+                        "checkbox" -> if (sub.correctAnswerIndices.isEmpty()) {
+                            Toast.makeText(this, "Sub-question missing correct options", Toast.LENGTH_SHORT).show()
+                            return false
+                        }
+                        "descriptive" -> if (sub.correctAnswerText.isBlank()) {
+                            Toast.makeText(this, "Sub-question missing correct answer", Toast.LENGTH_SHORT).show()
+                            return false
+                        }
+                    }
+                    if (sub.points <= 0) {
+                        Toast.makeText(this, "Every sub-question needs points > 0", Toast.LENGTH_SHORT).show()
                         return false
                     }
                 }
+                continue
+            }
+
+            // Normal questions
+            if (entry.text.isBlank()) {
+                Toast.makeText(this, "One or more questions have empty text", Toast.LENGTH_SHORT).show()
+                return false
+            }
+            when (entry.questionType) {
+                "radio" -> if (entry.correctAnswerIndex < 0 || entry.correctAnswerIndex >= entry.options.size) {
+                    Toast.makeText(this, "One or more questions have invalid correct answer", Toast.LENGTH_SHORT).show()
+                    return false
+                }
                 "checkbox" -> {
-                    if (q.correctAnswerIndices.isEmpty()) {
+                    if (entry.correctAnswerIndices.isEmpty()) {
                         Toast.makeText(this, "One or more checkbox questions have no correct option selected", Toast.LENGTH_SHORT).show()
                         return false
                     }
-                    for (idx in q.correctAnswerIndices) {
-                        if (idx < 0 || idx >= q.options.size) {
+                    for (idx in entry.correctAnswerIndices) {
+                        if (idx < 0 || idx >= entry.options.size) {
                             Toast.makeText(this, "One or more questions have invalid correct answer", Toast.LENGTH_SHORT).show()
                             return false
                         }
                     }
                 }
-                "descriptive" -> {
-                    if (q.correctAnswerText.isBlank()) {
-                        Toast.makeText(this, "One or more descriptive questions have no correct answer text", Toast.LENGTH_SHORT).show()
-                        return false
-                    }
+                "descriptive" -> if (entry.correctAnswerText.isBlank()) {
+                    Toast.makeText(this, "One or more descriptive questions have no correct answer text", Toast.LENGTH_SHORT).show()
+                    return false
                 }
             }
-            if (q.points <= 0) {
+            if (entry.points <= 0) {
                 Toast.makeText(this, "Each question must have points > 0", Toast.LENGTH_SHORT).show()
                 return false
             }
         }
 
+        // ---------- NEW: configured vs. actual total ----------
+        val actualCount = questionsList.sumOf { it.questionCount() }
+        if (actualCount != configuredCount) {
+            val message = if (actualCount < configuredCount) {
+                val missing = configuredCount - actualCount
+                "Please add $missing more question${if (missing == 1) "" else "s"}. " +
+                        "Total required: $configuredCount, current: $actualCount."
+            } else {
+                val extra = actualCount - configuredCount
+                "Question limit exceeded. " +
+                        "Total required: $configuredCount, current: $actualCount. " +
+                        "Please remove $extra question${if (extra == 1) "" else "s"}."
+            }
+            AlertDialog.Builder(this)
+                .setTitle("Question Count Mismatch")
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .show()
+            return false
+        }
+
+        // ---------- Timer validation (unchanged) ----------
         val timerType = when (binding.radioGroupTimerType.checkedRadioButtonId) {
             R.id.radioWholeQuizTimer -> "WHOLE_QUIZ"
             R.id.radioPerQuestionTimer -> "PER_QUESTION"
@@ -1022,7 +1554,6 @@ class QuizCreationActivity : AppCompatActivity() {
             }
         }
 
-        // ---------- NEW: start / deadline consistency ----------
         if (startTimeTimestamp > 0 && startTimeTimestamp >= deadlineTimestamp && deadlineTimestamp > 0) {
             Toast.makeText(this, "Start time must be before due time", Toast.LENGTH_SHORT).show()
             binding.etStartTime.error = "Start must be before due"

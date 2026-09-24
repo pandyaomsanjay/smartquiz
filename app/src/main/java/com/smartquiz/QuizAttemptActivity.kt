@@ -13,6 +13,7 @@ import android.widget.*
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -30,12 +31,23 @@ import android.view.ViewGroup
 import kotlin.random.Random
 
 class QuizAttemptActivity : AppCompatActivity() {
+
     private lateinit var binding: ActivityQuizAttemptBinding
     private lateinit var db: FirebaseFirestore
     private lateinit var auth: FirebaseAuth
     private lateinit var quiz: Quiz
+
     private var questions = mutableListOf<Question>()
     private var shuffledQuestions = mutableListOf<Question>()
+
+    private val flattened = mutableListOf<FlatItem>()
+
+    data class FlatItem(
+        val scenarioId: String,
+        val scenarioText: String,
+        val question: Question
+    )
+
     private var currentIndex = 0
     private var score = 0.0
     private var quizId = ""
@@ -81,6 +93,9 @@ class QuizAttemptActivity : AppCompatActivity() {
     private val DEBOUNCE_MS = 500L
 
     private var perQuestionRemainingMap = mutableMapOf<String, Long>()
+
+    private val scenarioPrivateAnswers =
+        mutableMapOf<String, Map<String, Map<String, Any>>>()
 
     private val lifecycleObserver = object : DefaultLifecycleObserver {
         override fun onStop(owner: LifecycleOwner) {
@@ -166,13 +181,8 @@ class QuizAttemptActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (isQuizSubmitted) {
+        if (isQuizSubmitted || isQuizExpired) {
             disableAnswerControls()
-            return
-        }
-        if (isQuizExpired) {
-            disableAnswerControls()
-            return
         }
     }
 
@@ -268,7 +278,7 @@ class QuizAttemptActivity : AppCompatActivity() {
         )
     }
 
-    // ---------- PERSISTENCE HELPERS ----------
+    // ---------- VIOLATION PERSISTENCE ----------
     private fun getViolationCount(): Int {
         val userId = auth.currentUser?.uid ?: return 0
         val key = "${quizId}_$userId"
@@ -298,14 +308,9 @@ class QuizAttemptActivity : AppCompatActivity() {
             .addOnFailureListener { e -> Log.e(TAG, "Failed to save violation count: ${e.message}") }
     }
 
-    // ---------- HELPER: enable/disable controls ----------
-    private fun disableAnswerControls() {
-        setChildrenEnabled(binding.radioGroupOptions, false)
-    }
-
-    private fun enableAnswerControls() {
-        setChildrenEnabled(binding.radioGroupOptions, true)
-    }
+    // ---------- ENABLE/DISABLE ----------
+    private fun disableAnswerControls() = setChildrenEnabled(binding.radioGroupOptions, false)
+    private fun enableAnswerControls() = setChildrenEnabled(binding.radioGroupOptions, true)
 
     private fun setChildrenEnabled(viewGroup: ViewGroup, enabled: Boolean) {
         for (i in 0 until viewGroup.childCount) {
@@ -407,10 +412,10 @@ class QuizAttemptActivity : AppCompatActivity() {
                 updates["wholeQuizRemaining"] = timerManager.getWholeQuizRemaining()
             } else if (timerType == "PER_QUESTION") {
                 val perQuestionRemaining = mutableMapOf<String, Long>()
-                for (q in shuffledQuestions) {
-                    val remaining = timerManager.getRemainingForQuestion(q.questionId)
+                for (item in flattened) {
+                    val remaining = timerManager.getRemainingForQuestion(item.question.questionId)
                     if (remaining > 0) {
-                        perQuestionRemaining[q.questionId] = remaining
+                        perQuestionRemaining[item.question.questionId] = remaining
                     }
                 }
                 updates["perQuestionRemaining"] = perQuestionRemaining
@@ -473,7 +478,6 @@ class QuizAttemptActivity : AppCompatActivity() {
                 quiz = doc.toObject(Quiz::class.java)!!
                 quiz.quizId = doc.id
 
-                // ---------- NEW: lifecycle guard ----------
                 val lifecycle = quiz.computeStatus(QuizTimeUtils.getServerTimeMs())
                 if (lifecycle != QuizLifecycleStatus.LIVE) {
                     Toast.makeText(
@@ -503,17 +507,39 @@ class QuizAttemptActivity : AppCompatActivity() {
             }
     }
 
-    // ---------- LOAD QUESTIONS (only public data) ----------
     private fun loadQuestions() {
-        val questionsCollection = db.collection("quizzes").document(quizId).collection("questions")
-        questionsCollection.get()
+        db.collection("quizzes").document(quizId).collection("questions")
+            .get()
             .addOnSuccessListener { docs ->
-                val loadedQuestions = docs.map { doc ->
-                    doc.toObject(Question::class.java).apply { questionId = doc.id }
+                val loaded = mutableListOf<Question>()
+                for (doc in docs) {
+                    var q = doc.toObject(Question::class.java).apply { questionId = doc.id }
+
+                    if (q.questionType == "scenario") {
+                        val rawSubs = doc.get("subQuestions") as? List<*>
+                        val subs = rawSubs?.mapNotNull { raw ->
+                            @Suppress("UNCHECKED_CAST")
+                            val m = raw as? Map<String, Any> ?: return@mapNotNull null
+                            Question(
+                                questionId = m["questionId"] as? String ?: "",
+                                text = m["text"] as? String ?: "",
+                                options = (m["options"] as? List<*>)?.mapNotNull { it as? String }
+                                    ?: emptyList(),
+                                questionType = m["questionType"] as? String ?: "radio",
+                                points = (m["points"] as? Long)?.toInt() ?: 1,
+                                imageUrl = m["imageUrl"] as? String ?: "",
+                                audioUrl = m["audioUrl"] as? String ?: "",
+                                videoUrl = m["videoUrl"] as? String ?: ""
+                            )
+                        } ?: emptyList()
+                        q = q.copy(subQuestions = subs)
+                    }
+                    loaded.add(q)
                 }
-                if (loadedQuestions.isNotEmpty()) {
+
+                if (loaded.isNotEmpty()) {
                     questions.clear()
-                    questions.addAll(loadedQuestions)
+                    questions.addAll(loaded)
                     restoreAttemptFromFirestore()
                     startQuiz()
                 } else {
@@ -527,7 +553,6 @@ class QuizAttemptActivity : AppCompatActivity() {
             }
     }
 
-    // ---------- RESTORE FROM FIRESTORE ----------
     private fun restoreAttemptFromFirestore() {
         val userId = auth.currentUser?.uid ?: return
         val attemptRef = db.collection("quizzes").document(quizId)
@@ -571,7 +596,7 @@ class QuizAttemptActivity : AppCompatActivity() {
             }
     }
 
-    // ---------- RANDOMIZATION HELPERS ----------
+    // ---------- RANDOMIZATION ----------
     private fun loadOrGenerateRandomization() {
         val userId = auth.currentUser?.uid ?: return
         val attemptRef = db.collection("quizzes").document(quizId)
@@ -619,12 +644,24 @@ class QuizAttemptActivity : AppCompatActivity() {
             val seed = System.currentTimeMillis() + auth.currentUser?.uid.hashCode() + 1
             val random = Random(seed)
             for (q in questions) {
-                val originalIndices = q.options.indices.toList()
-                optionOrderMap[q.questionId] = originalIndices.shuffled(random)
+                if (q.isScenario) {
+                    q.subQuestions.forEach { sub ->
+                        optionOrderMap[sub.questionId] =
+                            sub.options.indices.toList().shuffled(random)
+                    }
+                } else {
+                    optionOrderMap[q.questionId] = q.options.indices.toList().shuffled(random)
+                }
             }
         } else {
             for (q in questions) {
-                optionOrderMap[q.questionId] = q.options.indices.toList()
+                if (q.isScenario) {
+                    q.subQuestions.forEach { sub ->
+                        optionOrderMap[sub.questionId] = sub.options.indices.toList()
+                    }
+                } else {
+                    optionOrderMap[q.questionId] = q.options.indices.toList()
+                }
             }
         }
 
@@ -650,19 +687,46 @@ class QuizAttemptActivity : AppCompatActivity() {
         for (qId in questionOrder) {
             val q = questions.find { it.questionId == qId }
             if (q != null) {
-                val shuffledOptions = if (quiz.randomizationMode == "RANDOM_QUESTION_AND_OPTION_ORDER") {
-                    val order = optionOrderMap[qId] ?: q.options.indices.toList()
-                    order.map { q.options[it] }
+                val updated = if (q.isScenario) {
+                    val newSubs = q.subQuestions.map { sub ->
+                        val order = optionOrderMap[sub.questionId]
+                            ?: sub.options.indices.toList()
+                        val shuffledOptions = order.map { sub.options[it] }
+                        sub.copy(options = shuffledOptions)
+                    }
+                    q.copy(subQuestions = newSubs)
                 } else {
-                    q.options
+                    val order = optionOrderMap[qId] ?: q.options.indices.toList()
+                    q.copy(options = order.map { q.options[it] })
                 }
-                val shuffledQ = q.copy(options = shuffledOptions)
-                shuffledQuestions.add(shuffledQ)
+                shuffledQuestions.add(updated)
             }
         }
+        buildFlattened()
         initializeQuestionStates()
         displayQuestion()
         updateProgress()
+    }
+
+    private fun buildFlattened() {
+        flattened.clear()
+        for (entry in shuffledQuestions) {
+            if (entry.isScenario) {
+                entry.subQuestions.forEach { sub ->
+                    flattened.add(
+                        FlatItem(
+                            scenarioId = entry.questionId,
+                            scenarioText = entry.scenarioText,
+                            question = sub
+                        )
+                    )
+                }
+            } else {
+                flattened.add(
+                    FlatItem(scenarioId = "", scenarioText = "", question = entry)
+                )
+            }
+        }
     }
 
     // ---------- START QUIZ ----------
@@ -691,7 +755,7 @@ class QuizAttemptActivity : AppCompatActivity() {
             "joinTime" to System.currentTimeMillis(),
             "answers" to emptyMap<String, Any>(),
             "score" to 0,
-            "totalScore" to questions.sumOf { it.points },
+            "totalScore" to questions.sumOf { it.totalPoints() },
             "violationCount" to 0,
             "currentIndex" to 0
         )
@@ -712,9 +776,7 @@ class QuizAttemptActivity : AppCompatActivity() {
 
         timerManager = TimerManager(
             mode = timerMode,
-            onTick = { seconds ->
-                runOnUiThread { updateTimerUI(seconds) }
-            },
+            onTick = { seconds -> runOnUiThread { updateTimerUI(seconds) } },
             onFinish = {
                 runOnUiThread {
                     when (timerMode) {
@@ -736,11 +798,7 @@ class QuizAttemptActivity : AppCompatActivity() {
         }
 
         when (timerType) {
-            "WHOLE_QUIZ" -> {
-                binding.tvTimerLabel.visibility = View.VISIBLE
-                binding.tvTimer.visibility = View.VISIBLE
-            }
-            "PER_QUESTION" -> {
+            "WHOLE_QUIZ", "PER_QUESTION" -> {
                 binding.tvTimerLabel.visibility = View.VISIBLE
                 binding.tvTimer.visibility = View.VISIBLE
             }
@@ -757,15 +815,16 @@ class QuizAttemptActivity : AppCompatActivity() {
         if (questionStateMap.isEmpty()) {
             questionStateMap.clear()
             questionStatesList.clear()
-            for (q in shuffledQuestions) {
+            for (item in flattened) {
+                val qId = item.question.questionId
                 val state = QuestionState(
-                    questionId = q.questionId,
-                    isAnswered = userAnswers.containsKey(q.questionId),
-                    isBookmarked = loadBookmarkState(q.questionId),
-                    isMarkedForReview = loadReviewState(q.questionId),
+                    questionId = qId,
+                    isAnswered = userAnswers.containsKey(qId),
+                    isBookmarked = loadBookmarkState(qId),
+                    isMarkedForReview = loadReviewState(qId),
                     isLocked = false
                 )
-                questionStateMap[q.questionId] = state
+                questionStateMap[qId] = state
                 questionStatesList.add(state)
             }
         } else {
@@ -795,27 +854,28 @@ class QuizAttemptActivity : AppCompatActivity() {
         }
 
         binding.btnBookmark.setOnClickListener {
-            toggleBookmark(shuffledQuestions[currentIndex].questionId)
+            toggleBookmark(flattened[currentIndex].question.questionId)
         }
 
-        binding.btnMarkForReview.setOnClickListener {
-            toggleMarkForReview()
-        }
+        binding.btnMarkForReview.setOnClickListener { toggleMarkForReview() }
 
-        binding.btnGrid.setOnClickListener {
-            showQuestionGrid()
-        }
+        binding.btnGrid.setOnClickListener { showQuestionGrid() }
     }
 
     private fun toggleMarkForReview() {
-        val q = shuffledQuestions[currentIndex]
+        val q = flattened[currentIndex].question
         val state = questionStateMap[q.questionId] ?: return
         state.isMarkedForReview = !state.isMarkedForReview
         saveQuestionState(state)
         updateQuestionGridState()
         updateProgress()
-        binding.btnMarkForReview.text = if (state.isMarkedForReview) "Unmark Review" else "Mark for Review"
-        Toast.makeText(this, if (state.isMarkedForReview) "Marked for Review" else "Review mark removed", Toast.LENGTH_SHORT).show()
+        binding.btnMarkForReview.text =
+            if (state.isMarkedForReview) "Unmark Review" else "Mark for Review"
+        Toast.makeText(
+            this,
+            if (state.isMarkedForReview) "Marked for Review" else "Review mark removed",
+            Toast.LENGTH_SHORT
+        ).show()
         scheduleAutoSave()
     }
 
@@ -830,22 +890,29 @@ class QuizAttemptActivity : AppCompatActivity() {
         }
         questionStateMap[state.questionId] = state
         val index = questionStatesList.indexOfFirst { it.questionId == state.questionId }
-        if (index != -1) {
-            questionStatesList[index] = state
-        }
+        if (index != -1) questionStatesList[index] = state
     }
 
     private fun updateQuestionGridState() {
-        gridDialog?.let {
-            gridAdapter?.notifyDataSetChanged()
-        }
+        gridDialog?.let { gridAdapter?.notifyDataSetChanged() }
     }
 
     // ---------- DISPLAY QUESTION ----------
     private fun displayQuestion() {
-        val q = shuffledQuestions[currentIndex]
+        val item = flattened[currentIndex]
+        val q = item.question
+
+        // Scenario context banner
+        if (item.scenarioText.isNotBlank()) {
+            binding.tvScenarioContext.visibility = View.VISIBLE
+            binding.tvScenarioContext.text = item.scenarioText
+        } else {
+            binding.tvScenarioContext.visibility = View.GONE
+        }
+
         binding.tvQuestion.text = q.text
 
+        // Media
         if (q.imageUrl.isNotEmpty()) {
             binding.ivQuestionImage.visibility = View.VISIBLE
             Glide.with(this).load(q.imageUrl).into(binding.ivQuestionImage)
@@ -876,22 +943,22 @@ class QuizAttemptActivity : AppCompatActivity() {
         val container = binding.radioGroupOptions
         container.removeAllViews()
 
-        val originalQuestion = questions.find { it.questionId == q.questionId } ?: q
-        val optionOrder = optionOrderMap[q.questionId] ?: originalQuestion.options.indices.toList()
-        val shuffledOptions = optionOrder.map { originalQuestion.options[it] }
+        val originalQuestion = findOriginalSubQuestion(q.questionId) ?: q
+        val optionOrder = optionOrderMap[q.questionId] ?: q.options.indices.toList()
 
         when (q.questionType) {
             "radio" -> {
                 val radioGroup = RadioGroup(this)
                 radioGroup.orientation = RadioGroup.VERTICAL
-                shuffledOptions.forEachIndexed { displayIdx, optionText ->
+                q.options.forEachIndexed { displayIdx, optionText ->
                     val rb = RadioButton(this)
                     rb.text = optionText
-                    val originalIdx = optionOrder[displayIdx]
+                    val originalIdx = optionOrder.getOrElse(displayIdx) { displayIdx }
                     rb.tag = originalIdx
                     radioGroup.addView(rb)
                 }
                 container.addView(radioGroup)
+
                 val saved = userAnswers[q.questionId]
                 if (saved is Int) {
                     for (i in 0 until radioGroup.childCount) {
@@ -902,6 +969,7 @@ class QuizAttemptActivity : AppCompatActivity() {
                         }
                     }
                 }
+
                 radioGroup.setOnCheckedChangeListener { _, checkedId ->
                     if (checkedId != -1) {
                         val rb = radioGroup.findViewById<RadioButton>(checkedId)
@@ -913,14 +981,15 @@ class QuizAttemptActivity : AppCompatActivity() {
             "checkbox" -> {
                 val linearLayout = LinearLayout(this)
                 linearLayout.orientation = LinearLayout.VERTICAL
-                shuffledOptions.forEachIndexed { displayIdx, optionText ->
+                q.options.forEachIndexed { displayIdx, optionText ->
                     val cb = CheckBox(this)
                     cb.text = optionText
-                    val originalIdx = optionOrder[displayIdx]
+                    val originalIdx = optionOrder.getOrElse(displayIdx) { displayIdx }
                     cb.tag = originalIdx
                     linearLayout.addView(cb)
                 }
                 container.addView(linearLayout)
+
                 val saved = userAnswers[q.questionId]
                 if (saved is List<*>) {
                     val selectedIndices = saved.filterIsInstance<Int>()
@@ -931,6 +1000,7 @@ class QuizAttemptActivity : AppCompatActivity() {
                         }
                     }
                 }
+
                 for (i in 0 until linearLayout.childCount) {
                     val child = linearLayout.getChildAt(i)
                     if (child is CheckBox) {
@@ -946,19 +1016,51 @@ class QuizAttemptActivity : AppCompatActivity() {
                 }
             }
             "descriptive" -> {
-                val editText = EditText(this)
-                editText.hint = "Type your answer here"
-                editText.layoutParams = ViewGroup.LayoutParams(
+                // ============================================================
+                // Improved descriptive answer input:
+                //   • Multi-line, top-aligned, comfortable padding
+                //   • Stored raw text — no aggressive trimming while typing
+                //   • The stored answer keeps the student's exact input
+                // ============================================================
+                val editText = EditText(this).apply {
+                    hint = "Enter your answer…"
+                    gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                            android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                            android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                    minLines = 3
+                    maxLines = 10
+                    setPadding(28, 24, 28, 24)
+                    setTextSize(
+                        android.util.TypedValue.COMPLEX_UNIT_SP,
+                        16f
+                    )
+                    isSingleLine = false
+                    // Reuse the project's existing rounded-rect background
+                    // if present; otherwise the default Material look applies.
+                    runCatching {
+                        background = ContextCompat.getDrawable(
+                            context, R.drawable.bg_edittext
+                        )
+                    }
+                }
+                val lp = ViewGroup.MarginLayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-                container.addView(editText)
-                val saved = userAnswers[q.questionId]
-                if (saved is String) {
-                    editText.setText(saved)
+                ).apply {
+                    topMargin = 4
+                    bottomMargin = 8
                 }
+                editText.layoutParams = lp
+                container.addView(editText)
+
+                val saved = userAnswers[q.questionId]
+                if (saved is String) editText.setText(saved)
+
                 editText.addTextChangedListener(object : android.text.TextWatcher {
                     override fun afterTextChanged(s: android.text.Editable?) {
+                        // Store the raw text — do NOT trim. Normalization
+                        // happens only during evaluation.
                         onAnswerSelected(q.questionId, s.toString())
                     }
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -967,20 +1069,17 @@ class QuizAttemptActivity : AppCompatActivity() {
             }
         }
 
-        binding.tvProgress.text = "${currentIndex + 1}/${shuffledQuestions.size}"
+        binding.tvProgress.text = "${currentIndex + 1}/${flattened.size}"
         binding.tvMarks.text = "${q.points} marks"
 
         val state = questionStateMap[q.questionId]
         binding.btnBookmark.text = if (state?.isBookmarked == true) "Unbookmark" else "Bookmark"
-        binding.btnMarkForReview.text = if (state?.isMarkedForReview == true) "Unmark Review" else "Mark for Review"
+        binding.btnMarkForReview.text =
+            if (state?.isMarkedForReview == true) "Unmark Review" else "Mark for Review"
 
         val isTimedOut = state?.isLocked == true
         val shouldDisable = isQuizSubmitted || isQuizExpired || isTimedOut
-        if (shouldDisable) {
-            disableAnswerControls()
-        } else {
-            enableAnswerControls()
-        }
+        if (shouldDisable) disableAnswerControls() else enableAnswerControls()
 
         if (timerType == "PER_QUESTION" && !isQuizSubmitted && !isQuizExpired && !isTimedOut) {
             val savedRemaining = perQuestionRemainingMap[q.questionId]
@@ -991,8 +1090,8 @@ class QuizAttemptActivity : AppCompatActivity() {
             }
         }
 
-        val isLastQuestion = (currentIndex == shuffledQuestions.size - 1)
-        if (isLastQuestion) {
+        val isLast = (currentIndex == flattened.size - 1)
+        if (isLast) {
             binding.btnNextOrSubmit.text = "Submit Quiz"
             binding.btnNextOrSubmit.setOnClickListener {
                 if (isQuizSubmitted || isQuizExpired) {
@@ -1019,6 +1118,16 @@ class QuizAttemptActivity : AppCompatActivity() {
         updateProgress()
     }
 
+    private fun findOriginalSubQuestion(questionId: String): Question? {
+        for (entry in questions) {
+            if (entry.questionId == questionId) return entry
+            if (entry.isScenario) {
+                entry.subQuestions.find { it.questionId == questionId }?.let { return it }
+            }
+        }
+        return null
+    }
+
     private fun getCheckedIndices(linearLayout: LinearLayout): List<Int> {
         val indices = mutableListOf<Int>()
         for (i in 0 until linearLayout.childCount) {
@@ -1043,7 +1152,7 @@ class QuizAttemptActivity : AppCompatActivity() {
 
     // ---------- SAVE CURRENT ANSWER ----------
     private fun saveCurrentAnswer() {
-        val q = shuffledQuestions[currentIndex]
+        val q = flattened[currentIndex].question
         val container = binding.radioGroupOptions
         when (q.questionType) {
             "radio" -> {
@@ -1051,8 +1160,7 @@ class QuizAttemptActivity : AppCompatActivity() {
                 val selectedId = radioGroup?.checkedRadioButtonId
                 if (selectedId != null && selectedId != -1) {
                     val rb = radioGroup.findViewById<RadioButton>(selectedId)
-                    val selectedIndex = rb.tag as Int
-                    userAnswers[q.questionId] = selectedIndex
+                    userAnswers[q.questionId] = rb.tag as Int
                 } else {
                     userAnswers.remove(q.questionId)
                 }
@@ -1060,19 +1168,22 @@ class QuizAttemptActivity : AppCompatActivity() {
             "checkbox" -> {
                 val linearLayout = container.getChildAt(0) as? LinearLayout
                 val selectedIndices = getCheckedIndices(linearLayout ?: return)
-                if (selectedIndices.isNotEmpty()) {
-                    userAnswers[q.questionId] = selectedIndices
-                } else {
-                    userAnswers.remove(q.questionId)
-                }
+                if (selectedIndices.isNotEmpty()) userAnswers[q.questionId] = selectedIndices
+                else userAnswers.remove(q.questionId)
             }
             "descriptive" -> {
+                // ============================================================
+                // IMPORTANT: do NOT trim the stored value. The student's
+                // original input (including leading/trailing spaces) must
+                // round-trip through autosave/resume unchanged. Blank
+                // answers (all whitespace) are treated as "not answered".
+                // ============================================================
                 val editText = container.getChildAt(0) as? EditText
-                val text = editText?.text.toString().trim()
-                if (text.isNotEmpty()) {
-                    userAnswers[q.questionId] = text
-                } else {
+                val raw = editText?.text.toString()
+                if (raw.isBlank()) {
                     userAnswers.remove(q.questionId)
+                } else {
+                    userAnswers[q.questionId] = raw
                 }
             }
         }
@@ -1083,9 +1194,9 @@ class QuizAttemptActivity : AppCompatActivity() {
         updateProgress()
     }
 
-    // ---------- RESTORE SAVED ANSWERS ----------
     private fun restoreSavedAnswers() {
-        for (q in shuffledQuestions) {
+        for (item in flattened) {
+            val q = item.question
             when (q.questionType) {
                 "radio" -> {
                     val saved = sharedPrefs.getInt("${quizId}_${q.questionId}", -1)
@@ -1106,7 +1217,6 @@ class QuizAttemptActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- BOOKMARK ----------
     private fun toggleBookmark(questionId: String) {
         val uid = auth.currentUser?.uid ?: return
         val state = questionStateMap[questionId] ?: return
@@ -1133,7 +1243,6 @@ class QuizAttemptActivity : AppCompatActivity() {
         scheduleAutoSave()
     }
 
-    // ---------- QUESTION GRID ----------
     private fun showQuestionGrid() {
         if (isQuizSubmitted || isQuizExpired) {
             Toast.makeText(this, "Quiz already submitted or expired", Toast.LENGTH_SHORT).show()
@@ -1174,17 +1283,14 @@ class QuizAttemptActivity : AppCompatActivity() {
             .show()
     }
 
-    // ---------- PROGRESS INDICATOR ----------
     private fun updateProgress() {
-        val total = shuffledQuestions.size
+        val total = flattened.size
         val answered = questionStateMap.values.count { it.isAnswered }
         val percentage = if (total > 0) (answered * 100 / total) else 0
-
         binding.tvProgressText.text = "$answered/$total"
         binding.progressOverall.progress = percentage
     }
 
-    // ---------- TIMER UI UPDATE ----------
     private fun updateTimerUI(seconds: Long) {
         runOnUiThread {
             binding.tvTimerLabel.visibility = View.VISIBLE
@@ -1199,23 +1305,21 @@ class QuizAttemptActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- WHOLE QUIZ EXPIRY ----------
     private fun onWholeQuizExpired() {
         if (isSubmitted || isQuizSubmitted) return
         submitQuizWithReason("TIMER_EXPIRED")
     }
 
-    // ---------- QUESTION TIMER EXPIRY ----------
     private fun onQuestionTimerExpired() {
         if (isSubmitted || isQuizSubmitted) return
-        val question = shuffledQuestions[currentIndex]
+        val question = flattened[currentIndex].question
         val state = questionStateMap[question.questionId]
         state?.isLocked = true
         state?.let { saveQuestionState(it) }
         disableAnswerControls()
         Toast.makeText(this, "Time expired for this question", Toast.LENGTH_SHORT).show()
 
-        if (currentIndex < shuffledQuestions.size - 1) {
+        if (currentIndex < flattened.size - 1) {
             saveCurrentAnswer()
             timerManager.pauseTimer()
             currentIndex++
@@ -1228,7 +1332,6 @@ class QuizAttemptActivity : AppCompatActivity() {
         updateQuestionGridState()
     }
 
-    // ---------- SUBMIT CONFIRMATION ----------
     private fun showSubmitConfirmation() {
         if (isQuizSubmitted || isQuizExpired) {
             Toast.makeText(this, "Quiz already expired or submitted.", Toast.LENGTH_SHORT).show()
@@ -1242,16 +1345,12 @@ class QuizAttemptActivity : AppCompatActivity() {
                 isDialogShowing = false
                 submitQuizWithReason("NORMAL")
             }
-            .setNegativeButton("Cancel") { _, _ ->
-                isDialogShowing = false
-            }
-            .setOnDismissListener {
-                isDialogShowing = false
-            }
+            .setNegativeButton("Cancel") { _, _ -> isDialogShowing = false }
+            .setOnDismissListener { isDialogShowing = false }
             .show()
     }
 
-    // ---------- SUBMIT QUIZ ----------
+    // ---------- SUBMIT ----------
     private fun submitQuizWithReason(reason: String = "NORMAL") {
         if (isSubmitted) return
         isSubmitted = true
@@ -1269,7 +1368,7 @@ class QuizAttemptActivity : AppCompatActivity() {
         saveCurrentState()
         saveTimerStateToFirestore()
 
-        val totalPossible = questions.sumOf { it.points }
+        val totalPossible = questions.sumOf { it.totalPoints() }
         val userId = auth.currentUser?.uid ?: run {
             Toast.makeText(this, "Please log in", Toast.LENGTH_SHORT).show()
             startActivity(Intent(this, LoginActivity::class.java))
@@ -1290,10 +1389,17 @@ class QuizAttemptActivity : AppCompatActivity() {
         Tasks.whenAllSuccess<DocumentSnapshot>(privateTasks)
             .addOnSuccessListener { snapshots ->
                 snapshots.forEachIndexed { index, doc ->
-                    if (doc.exists()) {
-                        val q = questions[index]
+                    if (!doc.exists()) return@forEachIndexed
+                    val q = questions[index]
+
+                    if (q.isScenario) {
+                        @Suppress("UNCHECKED_CAST")
+                        val map = doc.get("subAnswers") as? Map<String, Map<String, Any>>
+                        scenarioPrivateAnswers[q.questionId] = map ?: emptyMap()
+                    } else {
                         when (q.questionType) {
-                            "radio" -> q.correctAnswerIndex = doc.getLong("correctAnswerIndex")?.toInt() ?: 0
+                            "radio" -> q.correctAnswerIndex =
+                                doc.getLong("correctAnswerIndex")?.toInt() ?: 0
                             "checkbox" -> {
                                 val rawList = doc.get("correctAnswerIndices") as? List<*>
                                 q.correctAnswerIndices = rawList?.mapNotNull {
@@ -1304,7 +1410,8 @@ class QuizAttemptActivity : AppCompatActivity() {
                                     }
                                 } ?: emptyList()
                             }
-                            "descriptive" -> q.correctAnswerText = doc.getString("correctAnswerText") ?: ""
+                            "descriptive" -> q.correctAnswerText =
+                                doc.getString("correctAnswerText") ?: ""
                         }
                     }
                 }
@@ -1318,36 +1425,58 @@ class QuizAttemptActivity : AppCompatActivity() {
 
     private fun computeFinalScoreAndSubmit(userId: String, totalPossible: Int, reason: String) {
         var finalScore = 0.0
+
         for ((qId, answer) in userAnswers) {
-            val q = questions.find { it.questionId == qId } ?: continue
-            val isCorrect = when (q.questionType) {
+            val (ownerScenarioId, original) = findOriginalWithOwner(qId) ?: continue
+
+            val isCorrect = when (original.questionType) {
                 "radio" -> {
-                    val selected = answer as? Int
-                    selected != null && selected == q.correctAnswerIndex
+                    val selected = (answer as? Int)
+                    val correct = if (ownerScenarioId.isNotEmpty()) {
+                        val map = scenarioPrivateAnswers[ownerScenarioId]?.get(qId)
+                        (map?.get("correctAnswerIndex") as? Long)?.toInt() ?: -1
+                    } else {
+                        original.correctAnswerIndex
+                    }
+                    selected != null && selected == correct
                 }
                 "checkbox" -> {
-                    val selected = answer as? List<*>
-                    if (selected != null) {
-                        val selectedSet = selected.mapNotNull {
-                            when (it) {
-                                is Int -> it
-                                is Long -> it.toInt()
-                                else -> null
-                            }
-                        }.toSet()
-                        val correctSet = q.correctAnswerIndices.toSet()
-                        selectedSet == correctSet
-                    } else false
+                    val selectedSet = (answer as? List<*>)?.mapNotNull {
+                        when (it) {
+                            is Int -> it
+                            is Long -> it.toInt()
+                            else -> null
+                        }
+                    }?.toSet() ?: emptySet()
+
+                    val correctSet = if (ownerScenarioId.isNotEmpty()) {
+                        val map = scenarioPrivateAnswers[ownerScenarioId]?.get(qId)
+                        (map?.get("correctAnswerIndices") as? List<*>)?.mapNotNull {
+                            (it as? Long)?.toInt()
+                        }?.toSet() ?: emptySet()
+                    } else {
+                        original.correctAnswerIndices.toSet()
+                    }
+                    selectedSet == correctSet && correctSet.isNotEmpty()
                 }
                 "descriptive" -> {
+                    // ============================================================
+                    // Centralised normalization — handles whitespace, case,
+                    // numeric, and alphanumeric formatting equivalence.
+                    // The original strings are never mutated here.
+                    // ============================================================
                     val userText = answer as? String
-                    userText != null && userText.trim().equals(q.correctAnswerText.trim(), ignoreCase = true)
+                    val correctText = if (ownerScenarioId.isNotEmpty()) {
+                        val map = scenarioPrivateAnswers[ownerScenarioId]?.get(qId)
+                        (map?.get("correctAnswerText") as? String) ?: ""
+                    } else {
+                        original.correctAnswerText
+                    }
+                    DescriptiveAnswerMatcher.areEquivalent(userText, correctText)
                 }
                 else -> false
             }
-            if (isCorrect) {
-                finalScore += q.points
-            }
+            if (isCorrect) finalScore += original.points
         }
         finalScore = finalScore.coerceAtLeast(0.0)
         score = finalScore
@@ -1385,6 +1514,11 @@ class QuizAttemptActivity : AppCompatActivity() {
                 isQuizSubmitted = true
                 for (q in questions) {
                     sharedPrefs.edit().remove("${quizId}_${q.questionId}").apply()
+                    if (q.isScenario) {
+                        q.subQuestions.forEach { sub ->
+                            sharedPrefs.edit().remove("${quizId}_${sub.questionId}").apply()
+                        }
+                    }
                 }
                 clearViolationCount()
 
@@ -1425,6 +1559,17 @@ class QuizAttemptActivity : AppCompatActivity() {
                 Toast.makeText(this, "Failed to save attempt: ${e.message}", Toast.LENGTH_LONG).show()
                 Log.e(TAG, "Submit error: ${e.message}")
             }
+    }
+
+    private fun findOriginalWithOwner(questionId: String): Pair<String, Question>? {
+        for (entry in questions) {
+            if (entry.questionId == questionId) return "" to entry
+            if (entry.isScenario) {
+                val sub = entry.subQuestions.find { it.questionId == questionId }
+                if (sub != null) return entry.questionId to sub
+            }
+        }
+        return null
     }
 
     private fun updateJoinedQuiz(userId: String, score: Int, totalScore: Int, submitTime: Long) {

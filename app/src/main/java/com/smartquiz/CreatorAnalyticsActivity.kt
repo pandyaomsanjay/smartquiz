@@ -180,9 +180,6 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
                         answers = answers
                     )
                     attempts.add(attempt)
-
-                    // Track incorrect answers for "Most Incorrect Question"
-                    // We need to know correct answers; we'll fetch questions later.
                 }
                 fetchQuestionsAndComputeStats()
             }
@@ -197,47 +194,145 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
             .collection("questions")
             .get()
             .addOnSuccessListener { questionDocs ->
+                // Build a flat map of {questionId -> Question} for both normal
+                // questions and scenario sub-questions.
                 val questionMap = mutableMapOf<String, Question>()
+
                 for (doc in questionDocs) {
-                    val q = doc.toObject(Question::class.java)
-                    q.questionId = doc.id
-                    questionMap[q.questionId] = q
-                }
-                // Compute incorrect counts per question
-                for (attempt in attempts) {
-                    val answers = attempt.answers ?: continue
-                    for ((qId, answer) in answers) {
-                        val q = questionMap[qId] ?: continue
-                        val isCorrect = when (q.questionType) {
-                            "radio" -> {
-                                val selected = answer as? Int
-                                selected != null && selected == q.correctAnswerIndex
-                            }
-                            "checkbox" -> {
-                                val selected = answer as? List<*>
-                                if (selected != null) {
-                                    val selectedSet = selected.mapNotNull {
-                                        when (it) {
-                                            is Int -> it
-                                            is Long -> it.toInt()
-                                            else -> null
-                                        }
-                                    }.toSet()
-                                    selectedSet == q.correctAnswerIndices.toSet()
-                                } else false
-                            }
-                            "descriptive" -> {
-                                val userText = answer as? String
-                                userText != null && userText.trim().equals(q.correctAnswerText.trim(), ignoreCase = true)
-                            }
-                            else -> false
-                        }
-                        if (!isCorrect) {
-                            questionIncorrectCount[qId] = questionIncorrectCount.getOrDefault(qId, 0) + 1
-                        }
+                    var q = doc.toObject(Question::class.java).apply { questionId = doc.id }
+
+                    if (q.questionType == "scenario") {
+                        val rawSubs = doc.get("subQuestions") as? List<*>
+                        val subs = rawSubs?.mapNotNull { raw ->
+                            @Suppress("UNCHECKED_CAST")
+                            val m = raw as? Map<String, Any> ?: return@mapNotNull null
+                            Question(
+                                questionId = m["questionId"] as? String ?: "",
+                                text = m["text"] as? String ?: "",
+                                options = (m["options"] as? List<*>)?.mapNotNull { it as? String }
+                                    ?: emptyList(),
+                                questionType = m["questionType"] as? String ?: "radio",
+                                points = (m["points"] as? Long)?.toInt() ?: 1
+                            )
+                        } ?: emptyList()
+                        q = q.copy(subQuestions = subs)
+                        q.subQuestions.forEach { sub -> questionMap[sub.questionId] = sub }
+                    } else {
+                        questionMap[q.questionId] = q
                     }
                 }
-                applyFilter()
+
+                // Fetch private answers for each top-level doc
+                val tasks = questionDocs.map { qDoc ->
+                    db.collection("quizzes").document(quizId)
+                        .collection("questions_private").document(qDoc.id)
+                        .get()
+                        .continueWith { task ->
+                            if (task.isSuccessful && task.result.exists()) {
+                                val data = task.result
+                                val original = questionMap[qDoc.id]
+                                if (original?.isScenario == true) {
+                                    // Nothing to do here — sub-answers are merged on demand below
+                                } else {
+                                    when (original?.questionType) {
+                                        "radio" -> original.correctAnswerIndex =
+                                            data.getLong("correctAnswerIndex")?.toInt() ?: 0
+                                        "checkbox" -> {
+                                            val raw = data.get("correctAnswerIndices") as? List<*>
+                                            original.correctAnswerIndices = raw?.mapNotNull {
+                                                (it as? Long)?.toInt()
+                                            } ?: emptyList()
+                                        }
+                                        "descriptive" -> original.correctAnswerText =
+                                            data.getString("correctAnswerText") ?: ""
+                                    }
+                                }
+                            }
+                            true
+                        }
+                }
+
+                com.google.android.gms.tasks.Tasks.whenAllComplete(tasks)
+                    .addOnCompleteListener {
+                        // Also fetch scenario sub-answers
+                        val scenarioDocs = questionDocs.filter { doc ->
+                            doc.getString("questionType") == "scenario"
+                        }
+                        val scenarioTasks = scenarioDocs.map { doc ->
+                            db.collection("quizzes").document(quizId)
+                                .collection("questions_private").document(doc.id)
+                                .get()
+                                .continueWith { task ->
+                                    if (task.isSuccessful && task.result.exists()) {
+                                        @Suppress("UNCHECKED_CAST")
+                                        val map = task.result.get("subAnswers")
+                                                as? Map<String, Map<String, Any>>
+                                        map?.forEach { (subId, answerMap) ->
+                                            val sub = questionMap[subId]
+                                            if (sub != null) {
+                                                when (sub.questionType) {
+                                                    "radio" -> sub.correctAnswerIndex =
+                                                        (answerMap["correctAnswerIndex"] as? Long)?.toInt() ?: 0
+                                                    "checkbox" -> {
+                                                        val raw = answerMap["correctAnswerIndices"] as? List<*>
+                                                        sub.correctAnswerIndices = raw?.mapNotNull {
+                                                            (it as? Long)?.toInt()
+                                                        } ?: emptyList()
+                                                    }
+                                                    "descriptive" -> sub.correctAnswerText =
+                                                        answerMap["correctAnswerText"] as? String ?: ""
+                                                }
+                                            }
+                                        }
+                                    }
+                                    true
+                                }
+                        }
+                        com.google.android.gms.tasks.Tasks.whenAllComplete(scenarioTasks)
+                            .addOnCompleteListener {
+                                // Now compute incorrect counts per question
+                                for (attempt in attempts) {
+                                    val answers = attempt.answers ?: continue
+                                    for ((qId, answer) in answers) {
+                                        val q = questionMap[qId] ?: continue
+                                        val isCorrect = when (q.questionType) {
+                                            "radio" -> {
+                                                val selected = answer as? Int
+                                                selected != null && selected == q.correctAnswerIndex
+                                            }
+                                            "checkbox" -> {
+                                                val selected = answer as? List<*>
+                                                if (selected != null) {
+                                                    val selectedSet = selected.mapNotNull {
+                                                        when (it) {
+                                                            is Int -> it
+                                                            is Long -> it.toInt()
+                                                            else -> null
+                                                        }
+                                                    }.toSet()
+                                                    selectedSet == q.correctAnswerIndices.toSet()
+                                                } else false
+                                            }
+                                            "descriptive" -> {
+                                                // ============================================================
+                                                // Centralised normalization for descriptive answers.
+                                                // ============================================================
+                                                DescriptiveAnswerMatcher.areEquivalent(
+                                                    answer as? String,
+                                                    q.correctAnswerText
+                                                )
+                                            }
+                                            else -> false
+                                        }
+                                        if (!isCorrect) {
+                                            questionIncorrectCount[qId] =
+                                                questionIncorrectCount.getOrDefault(qId, 0) + 1
+                                        }
+                                    }
+                                }
+                                applyFilter()
+                            }
+                    }
             }
             .addOnFailureListener { e ->
                 binding.progressBar.visibility = View.GONE
@@ -278,7 +373,10 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
         val scores = filteredAttempts.map { it.score }
         val highest = scores.maxOrNull() ?: 0.0
         val lowest = scores.minOrNull() ?: 0.0
-        val autoSubmit = filteredAttempts.count { it.submissionReason == "THREE_CHEAT_WARNINGS" || it.submissionReason == "CHEAT_LIMIT_REACHED" }
+        val autoSubmit = filteredAttempts.count {
+            it.submissionReason == "THREE_CHEAT_WARNINGS" ||
+                    it.submissionReason == "CHEAT_LIMIT_REACHED"
+        }
         val timeExpired = filteredAttempts.count { it.submissionReason == "TIMER_EXPIRED" }
 
         // Most incorrect question
@@ -296,7 +394,6 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
             "No incorrect answers"
         }
 
-        // Update UI
         binding.tvTotalParticipants.text = "Total Participants: $totalParticipants"
         binding.tvCompletionRate.text = "Completion Rate: ${String.format("%.1f", completionRate)}%"
         binding.tvHighestScore.text = "Highest Score: ${highest.roundToInt()}"
@@ -305,7 +402,7 @@ class CreatorAnalyticsActivity : AppCompatActivity() {
         binding.tvTimeExpired.text = "Time-Expired: $timeExpired"
         binding.tvMostIncorrect.text = "Most Incorrect: $mostIncorrectText"
 
-        // ---- Compute ranks for leaderboard ----
+        // Compute ranks for leaderboard
         val sorted = filteredAttempts.sortedByDescending { it.score }
         leaderboardEntries.clear()
         var rank = 1
