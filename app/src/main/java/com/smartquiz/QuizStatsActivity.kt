@@ -56,6 +56,8 @@ class QuizStatsActivity : AppCompatActivity() {
     private lateinit var tvLowestScore: TextView
     private lateinit var tvAvgDuration: TextView
 
+    private val TAG = "QuizStats"
+
     data class ParticipantStats(
         val userId: String,
         var name: String,
@@ -125,6 +127,22 @@ class QuizStatsActivity : AppCompatActivity() {
         }
     }
 
+    // ==================================================================
+    // SAFE OUTPUT DIRECTORY
+    // ==================================================================
+    /**
+     * Returns a writable directory for exporting files.
+     * Prefers external files dir (visible in file managers),
+     * falls back to internal files dir if external is unavailable.
+     */
+    private fun getSafeOutputDir(): File {
+        val external = try { getExternalFilesDir(null) } catch (e: Exception) { null }
+        return external ?: filesDir
+    }
+
+    // ==================================================================
+    // SORTING
+    // ==================================================================
     private fun setupSorting() {
         val spinner = binding.spinnerSort
         ArrayAdapter.createFromResource(
@@ -168,6 +186,9 @@ class QuizStatsActivity : AppCompatActivity() {
         updateChart()
     }
 
+    // ==================================================================
+    // PARTICIPANT LISTENER
+    // ==================================================================
     private fun startListening() {
         listener = db.collection("quizzes").document(quizId)
             .collection("attempts")
@@ -262,6 +283,9 @@ class QuizStatsActivity : AppCompatActivity() {
             }
     }
 
+    // ==================================================================
+    // SUMMARY & CHART
+    // ==================================================================
     private fun updateSummary(participants: List<ParticipantStats>) {
         val total = participants.size
         val completed = participants.count { it.status == "Completed" }
@@ -297,6 +321,9 @@ class QuizStatsActivity : AppCompatActivity() {
         }
     }
 
+    // ==================================================================
+    // QUIZ INFO + QR
+    // ==================================================================
     private fun loadQuizInfo() {
         db.collection("quizzes").document(quizId).get()
             .addOnSuccessListener { doc ->
@@ -336,6 +363,9 @@ class QuizStatsActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(shareIntent, "Share Quiz"))
     }
 
+    // ==================================================================
+    // RECYCLER / SEARCH / EXPORT BUTTONS
+    // ==================================================================
     private fun setupRecyclerView() {
         adapter = ParticipantStatsAdapter(filteredList) { participant ->
             showParticipantAnswers(participant)
@@ -358,24 +388,30 @@ class QuizStatsActivity : AppCompatActivity() {
     }
 
     private fun showProgressDialog(message: String = "Generating PDF...") {
-        progressDialog = AlertDialog.Builder(this)
-            .setTitle("Please wait")
-            .setMessage(message)
-            .setCancelable(false)
-            .create()
-        progressDialog?.show()
+        try {
+            progressDialog = AlertDialog.Builder(this)
+                .setTitle("Please wait")
+                .setMessage(message)
+                .setCancelable(false)
+                .create()
+            progressDialog?.show()
+        } catch (t: Throwable) {
+            Log.e(TAG, "showProgressDialog failed", t)
+        }
     }
 
     private fun hideProgressDialog() {
-        progressDialog?.dismiss()
-        progressDialog = null
+        try {
+            progressDialog?.dismiss()
+            progressDialog = null
+        } catch (t: Throwable) {
+            Log.e(TAG, "hideProgressDialog failed", t)
+        }
     }
 
-    /**
-     * Displays a participant's answers, including scenario sub-question
-     * answers. Uses the centralised DescriptiveAnswerMatcher for
-     * descriptive comparison.
-     */
+    // ==================================================================
+    // SHOW PARTICIPANT ANSWERS
+    // ==================================================================
     private fun showParticipantAnswers(participant: ParticipantStats) {
         showProgressDialog("Loading answers...")
 
@@ -508,12 +544,10 @@ class QuizStatsActivity : AppCompatActivity() {
                                     }
                                     userIndices.sorted() == q.correctAnswerIndices.sorted()
                                 }
-                                "descriptive" -> {
-                                    DescriptiveAnswerMatcher.areEquivalent(
-                                        answer as? String,
-                                        q.correctAnswerText
-                                    )
-                                }
+                                "descriptive" -> DescriptiveAnswerMatcher.areEquivalent(
+                                    answer as? String,
+                                    q.correctAnswerText
+                                )
                                 else -> false
                             }
 
@@ -588,7 +622,9 @@ class QuizStatsActivity : AppCompatActivity() {
             }
     }
 
-    // ---------- CSV EXPORT (participant stats) ----------
+    // ==================================================================
+    // PARTICIPANT STATS — CSV EXPORT
+    // ==================================================================
     private fun exportToCSV() {
         val sortedList = getSortedExportList()
         if (sortedList.isEmpty()) {
@@ -596,7 +632,8 @@ class QuizStatsActivity : AppCompatActivity() {
             return
         }
         val fileName = "quiz_stats_${quizId}_${System.currentTimeMillis()}.csv"
-        val file = File(getExternalFilesDir(null), fileName)
+        val dir = getSafeOutputDir()
+        val file = File(dir, fileName)
         try {
             FileOutputStream(file).use { fos ->
                 fos.write("Sr No.,Name,Email,Score,Percentage,Duration,Status\n".toByteArray())
@@ -606,19 +643,26 @@ class QuizStatsActivity : AppCompatActivity() {
                 }
             }
             Toast.makeText(this, "Exported to ${file.absolutePath}", Toast.LENGTH_LONG).show()
-            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/csv"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            try {
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(shareIntent, "Share CSV"))
+            } catch (t: Throwable) {
+                Log.e(TAG, "Share sheet failed", t)
             }
-            startActivity(Intent.createChooser(shareIntent, "Share CSV"))
         } catch (e: Exception) {
+            Log.e(TAG, "CSV export failed", e)
             Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // ---------- PDF EXPORT (participant stats) ----------
+    // ==================================================================
+    // PARTICIPANT STATS — PDF EXPORT
+    // ==================================================================
     private fun exportToPDF() {
         val sortedList = getSortedExportList().take(5000)
         if (sortedList.isEmpty()) {
@@ -630,7 +674,8 @@ class QuizStatsActivity : AppCompatActivity() {
         Thread {
             try {
                 val fileName = "quiz_stats_${quizId}_${System.currentTimeMillis()}.pdf"
-                val file = File(getExternalFilesDir(null), fileName)
+                val dir = getSafeOutputDir()
+                val file = File(dir, fileName)
                 val document = PdfDocument()
                 val paint = Paint()
                 val pageWidthPoints = 595
@@ -740,17 +785,22 @@ class QuizStatsActivity : AppCompatActivity() {
                 runOnUiThread {
                     hideProgressDialog()
                     Toast.makeText(this, "PDF saved to ${file.absolutePath}", Toast.LENGTH_LONG).show()
-                    val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, "application/pdf")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    try {
+                        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/pdf")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(intent, "Open PDF"))
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Open PDF failed", t)
                     }
-                    startActivity(Intent.createChooser(intent, "Open PDF"))
                 }
-            } catch (e: Exception) {
+            } catch (t: Throwable) {
+                Log.e(TAG, "PDF export crashed", t)
                 runOnUiThread {
                     hideProgressDialog()
-                    Toast.makeText(this, "PDF export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "PDF export failed: ${t.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }.start()
@@ -764,24 +814,37 @@ class QuizStatsActivity : AppCompatActivity() {
     // QUESTION PAPER / QUESTION EXPORT OPTIONS
     // ==================================================================
     private fun showQuestionPaperOptions() {
-        val options = arrayOf(
-            "📄 Question Paper Only (PDF)",
-            "📝 Question Paper with Answers (PDF)",
-            "📊 Excel — Questions with Answers (.xlsx)  [for bulk re-import]",
-            "📊 CSV — Questions with Answers (.csv)    [for bulk re-import]"
-        )
-        AlertDialog.Builder(this)
-            .setTitle("Export / Download")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> generateQuestionPaperPdf(includeAnswers = false)
-                    1 -> generateQuestionPaperPdf(includeAnswers = true)
-                    2 -> exportQuestionsToExcel()
-                    3 -> exportQuestionsToCsv()
+        try {
+            val options = arrayOf(
+                "📄 Question Paper Only (PDF)",
+                "📝 Question Paper with Answers (PDF)",
+                "📊 Excel — Questions with Answers (.xlsx)  [for bulk re-import]",
+                "📊 CSV — Questions with Answers (.csv)    [for bulk re-import]"
+            )
+            AlertDialog.Builder(this)
+                .setTitle("Export / Download")
+                .setItems(options) { _, which ->
+                    try {
+                        when (which) {
+                            0 -> generateQuestionPaperPdf(includeAnswers = false)
+                            1 -> generateQuestionPaperPdf(includeAnswers = true)
+                            2 -> exportQuestionsToExcel()
+                            3 -> exportQuestionsToCsv()
+                        }
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Export option $which crashed", t)
+                        Toast.makeText(
+                            this,
+                            "Export failed: ${t.message ?: t.javaClass.simpleName}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+                .setNegativeButton("Cancel", null)
+                .show()
+        } catch (t: Throwable) {
+            Log.e(TAG, "showQuestionPaperOptions crashed", t)
+        }
     }
 
     // ---------- Question Paper PDF ----------
@@ -1120,23 +1183,28 @@ class QuizStatsActivity : AppCompatActivity() {
             hideProgressDialog()
             val suffix = if (includeAnswers) "_with_answers" else "_only"
             val fileName = "QuestionPaper${suffix}_${quizTitle}_${System.currentTimeMillis()}.pdf"
-            val file = File(getExternalFilesDir(null), fileName)
+            val dir = getSafeOutputDir()
+            val file = File(dir, fileName)
             try {
                 FileOutputStream(file).use { fos -> document.writeTo(fos) }
                 Toast.makeText(this, "PDF saved: $fileName", Toast.LENGTH_LONG).show()
 
-                val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "application/pdf"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    val shareText = if (includeAnswers)
-                        "Question paper with answers for '$quizTitle'"
-                    else
-                        "Question paper (without answers) for '$quizTitle'"
-                    putExtra(Intent.EXTRA_TEXT, shareText)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                try {
+                    val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        val shareText = if (includeAnswers)
+                            "Question paper with answers for '$quizTitle'"
+                        else
+                            "Question paper (without answers) for '$quizTitle'"
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(shareIntent, "Share Question Paper"))
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Share question paper failed", t)
                 }
-                startActivity(Intent.createChooser(shareIntent, "Share Question Paper"))
             } catch (e: Exception) {
                 Toast.makeText(this, "PDF generation failed: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
@@ -1154,12 +1222,17 @@ class QuizStatsActivity : AppCompatActivity() {
             return
         }
 
-        showProgressDialog("Generating Excel…")
+        try {
+            showProgressDialog("Generating Excel…")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Progress dialog failed", t)
+            Toast.makeText(this, "Cannot start export", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         Thread {
             try {
                 val questions = loadQuestionsWithAnswersBlocking()
-
                 if (questions.isEmpty()) {
                     runOnUiThread {
                         hideProgressDialog()
@@ -1168,65 +1241,112 @@ class QuizStatsActivity : AppCompatActivity() {
                     return@Thread
                 }
 
-                val workbook = XSSFWorkbook()
-                val sheet = workbook.createSheet("Questions")
-
-                // -------- Header (must match QuestionFileParser expectations) --------
-                val headers = listOf(
-                    "question", "type",
-                    "optionA", "optionB", "optionC", "optionD",
-                    "answer", "marks", "negativeMarks"
-                )
-                val headerRow = sheet.createRow(0)
-                headers.forEachIndexed { idx, h ->
-                    headerRow.createCell(idx).setCellValue(h)
+                // -------- Build workbook defensively --------
+                val workbook: XSSFWorkbook
+                try {
+                    workbook = XSSFWorkbook()
+                } catch (t: Throwable) {
+                    Log.e(TAG, "XSSFWorkbook init failed", t)
+                    runOnUiThread {
+                        hideProgressDialog()
+                        Toast.makeText(
+                            this,
+                            "Excel support unavailable: ${t.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    return@Thread
                 }
 
-                // -------- Data rows --------
-                var rowIdx = 1
-                for (q in questions) {
-                    if (q.isScenario) {
-                        q.subQuestions.forEach { sub ->
-                            val row = sheet.createRow(rowIdx++)
-                            writeExcelQuestionRow(row, sub, scenarioText = q.scenarioText)
+                try {
+                    val sheet = workbook.createSheet("Questions")
+
+                    val headers = listOf(
+                        "question", "type",
+                        "optionA", "optionB", "optionC", "optionD",
+                        "answer", "marks", "negativeMarks"
+                    )
+                    val headerRow = sheet.createRow(0)
+                    headers.forEachIndexed { idx, h ->
+                        headerRow.createCell(idx).setCellValue(h)
+                    }
+
+                    var rowIdx = 1
+                    for (q in questions) {
+                        if (q.isScenario) {
+                            q.subQuestions.forEach { sub ->
+                                writeExcelQuestionRow(sheet.createRow(rowIdx++), sub, q.scenarioText)
+                            }
+                        } else {
+                            writeExcelQuestionRow(sheet.createRow(rowIdx++), q, null)
                         }
-                    } else {
-                        val row = sheet.createRow(rowIdx++)
-                        writeExcelQuestionRow(row, q, scenarioText = null)
                     }
-                }
 
-                for (i in headers.indices) sheet.autoSizeColumn(i)
-
-                val fileName =
-                    "Questions_${quizTitle.replace(Regex("[^A-Za-z0-9_-]"), "_")}_${System.currentTimeMillis()}.xlsx"
-                val file = File(getExternalFilesDir(null), fileName)
-                FileOutputStream(file).use { workbook.write(it) }
-                workbook.close()
-
-                runOnUiThread {
-                    hideProgressDialog()
-                    Toast.makeText(this, "Excel saved: $fileName", Toast.LENGTH_LONG).show()
-                    val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        putExtra(
-                            Intent.EXTRA_TEXT,
-                            "Questions for '$quizTitle'. Edit and re-import via Bulk Import."
-                        )
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    // ============================================================
+                    // FIX: replace autoSizeColumn() with fixed widths.
+                    // autoSizeColumn relies on java.awt.FontMetrics which does
+                    // NOT exist on Android and throws NoClassDefFoundError
+                    // for org.apache.poi.ss.util.SheetUtil.
+                    //
+                    // Widths are in 1/256th of a character. Values below are
+                    // chosen to give each column a comfortable, readable size.
+                    // ============================================================
+                    val columnWidths = intArrayOf(
+                        60 * 256,  // question      — widest
+                        12 * 256,  // type
+                        18 * 256,  // optionA
+                        18 * 256,  // optionB
+                        18 * 256,  // optionC
+                        18 * 256,  // optionD
+                        30 * 256,  // answer
+                        8 * 256,   // marks
+                        14 * 256   // negativeMarks
+                    )
+                    for (i in columnWidths.indices) {
+                        try {
+                            sheet.setColumnWidth(i, columnWidths[i])
+                        } catch (_: Exception) { /* non-fatal */ }
                     }
-                    startActivity(Intent.createChooser(shareIntent, "Share Excel File"))
+
+                    // -------- Safe file write --------
+                    val dir = getSafeOutputDir()
+                    val fileName =
+                        "Questions_${quizTitle.replace(Regex("[^A-Za-z0-9_-]"), "_")}_${System.currentTimeMillis()}.xlsx"
+                    val file = File(dir, fileName)
+                    FileOutputStream(file).use { workbook.write(it) }
+
+                    runOnUiThread {
+                        hideProgressDialog()
+                        Toast.makeText(this, "Excel saved: ${file.name}", Toast.LENGTH_LONG).show()
+                        try {
+                            val uri = FileProvider.getUriForFile(
+                                this, "$packageName.fileprovider", file
+                            )
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                putExtra(
+                                    Intent.EXTRA_TEXT,
+                                    "Questions for '$quizTitle'. Edit and re-import via Bulk Import."
+                                )
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            startActivity(Intent.createChooser(shareIntent, "Share Excel File"))
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "Share sheet failed", t)
+                        }
+                    }
+                } finally {
+                    try { workbook.close() } catch (_: Exception) { }
                 }
-            } catch (e: Exception) {
-                Log.e("QuizStats", "Excel export failed", e)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Excel export crashed", t)
                 runOnUiThread {
                     hideProgressDialog()
                     Toast.makeText(
                         this,
-                        "Excel export failed: ${e.message}",
-                        Toast.LENGTH_SHORT
+                        "Excel export failed: ${t.message ?: t.javaClass.simpleName}",
+                        Toast.LENGTH_LONG
                     ).show()
                 }
             }
@@ -1274,12 +1394,17 @@ class QuizStatsActivity : AppCompatActivity() {
             return
         }
 
-        showProgressDialog("Generating CSV…")
+        try {
+            showProgressDialog("Generating CSV…")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Progress dialog failed", t)
+            Toast.makeText(this, "Cannot start export", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         Thread {
             try {
                 val questions = loadQuestionsWithAnswersBlocking()
-
                 if (questions.isEmpty()) {
                     runOnUiThread {
                         hideProgressDialog()
@@ -1301,30 +1426,37 @@ class QuizStatsActivity : AppCompatActivity() {
                     }
                 }
 
+                val dir = getSafeOutputDir()
                 val fileName =
                     "Questions_${quizTitle.replace(Regex("[^A-Za-z0-9_-]"), "_")}_${System.currentTimeMillis()}.csv"
-                val file = File(getExternalFilesDir(null), fileName)
+                val file = File(dir, fileName)
                 FileOutputStream(file).use { it.write(sb.toString().toByteArray(Charsets.UTF_8)) }
 
                 runOnUiThread {
                     hideProgressDialog()
-                    Toast.makeText(this, "CSV saved: $fileName", Toast.LENGTH_LONG).show()
-                    val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/csv"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    Toast.makeText(this, "CSV saved: ${file.name}", Toast.LENGTH_LONG).show()
+                    try {
+                        val uri = FileProvider.getUriForFile(
+                            this, "$packageName.fileprovider", file
+                        )
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/csv"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(shareIntent, "Share CSV"))
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Share sheet failed", t)
                     }
-                    startActivity(Intent.createChooser(shareIntent, "Share CSV"))
                 }
-            } catch (e: Exception) {
-                Log.e("QuizStats", "CSV export failed", e)
+            } catch (t: Throwable) {
+                Log.e(TAG, "CSV export crashed", t)
                 runOnUiThread {
                     hideProgressDialog()
                     Toast.makeText(
                         this,
-                        "CSV export failed: ${e.message}",
-                        Toast.LENGTH_SHORT
+                        "CSV export failed: ${t.message ?: t.javaClass.simpleName}",
+                        Toast.LENGTH_LONG
                     ).show()
                 }
             }
@@ -1378,8 +1510,7 @@ class QuizStatsActivity : AppCompatActivity() {
     }
 
     // ==================================================================
-    // Shared loader: rebuilds all questions + correct answers
-    // (blocking version for use on background threads)
+    // SHARED LOADER (blocking, safe)
     // ==================================================================
     private fun loadQuestionsWithAnswersBlocking(): List<Question> {
         return try {
@@ -1389,81 +1520,86 @@ class QuizStatsActivity : AppCompatActivity() {
 
             val questions = mutableListOf<Question>()
             for (doc in docs) {
-                var q = doc.toObject(Question::class.java).apply { questionId = doc.id }
-
-                if (q.questionType == "scenario") {
-                    val rawSubs = doc.get("subQuestions") as? List<*>
-                    val subs = rawSubs?.mapNotNull { raw ->
-                        @Suppress("UNCHECKED_CAST")
-                        val m = raw as? Map<String, Any> ?: return@mapNotNull null
-                        Question(
-                            questionId = m["questionId"] as? String ?: "",
-                            text = m["text"] as? String ?: "",
-                            options = (m["options"] as? List<*>)?.mapNotNull { it as? String }
-                                ?: emptyList(),
-                            questionType = m["questionType"] as? String ?: "radio",
-                            points = (m["points"] as? Long)?.toInt() ?: 1
-                        )
-                    } ?: emptyList()
-                    q = q.copy(subQuestions = subs)
-                }
-
                 try {
-                    val privateDoc = Tasks.await(
-                        db.collection("quizzes").document(quizId)
-                            .collection("questions_private").document(doc.id).get()
-                    )
-                    if (privateDoc.exists()) {
-                        if (q.questionType == "scenario") {
+                    var q = doc.toObject(Question::class.java) ?: continue
+                    q = q.apply { questionId = doc.id }
+
+                    if (q.questionType == "scenario") {
+                        val rawSubs = doc.get("subQuestions") as? List<*>
+                        val subs = rawSubs?.mapNotNull { raw ->
                             @Suppress("UNCHECKED_CAST")
-                            val map = privateDoc.get("subAnswers")
-                                    as? Map<String, Map<String, Any>>
-                            val merged = q.subQuestions.map { sub ->
-                                val a = map?.get(sub.questionId)
-                                when (sub.questionType) {
-                                    "radio" -> sub.copy(
-                                        correctAnswerIndex = (a?.get("correctAnswerIndex")
-                                                as? Long)?.toInt() ?: 0
-                                    )
-                                    "checkbox" -> sub.copy(
-                                        correctAnswerIndices = (a?.get("correctAnswerIndices")
-                                                as? List<*>)?.mapNotNull {
+                            val m = raw as? Map<String, Any> ?: return@mapNotNull null
+                            Question(
+                                questionId = m["questionId"] as? String ?: "",
+                                text = m["text"] as? String ?: "",
+                                options = (m["options"] as? List<*>)?.mapNotNull { it as? String }
+                                    ?: emptyList(),
+                                questionType = m["questionType"] as? String ?: "radio",
+                                points = (m["points"] as? Long)?.toInt() ?: 1
+                            )
+                        } ?: emptyList()
+                        q = q.copy(subQuestions = subs)
+                    }
+
+                    try {
+                        val privateDoc = Tasks.await(
+                            db.collection("quizzes").document(quizId)
+                                .collection("questions_private").document(doc.id).get()
+                        )
+                        if (privateDoc.exists()) {
+                            if (q.questionType == "scenario") {
+                                @Suppress("UNCHECKED_CAST")
+                                val map = privateDoc.get("subAnswers")
+                                        as? Map<String, Map<String, Any>>
+                                val merged = q.subQuestions.map { sub ->
+                                    val a = map?.get(sub.questionId)
+                                    when (sub.questionType) {
+                                        "radio" -> sub.copy(
+                                            correctAnswerIndex = (a?.get("correctAnswerIndex")
+                                                    as? Long)?.toInt() ?: 0
+                                        )
+                                        "checkbox" -> sub.copy(
+                                            correctAnswerIndices = (a?.get("correctAnswerIndices")
+                                                    as? List<*>)?.mapNotNull {
+                                                (it as? Long)?.toInt()
+                                            } ?: emptyList()
+                                        )
+                                        else -> sub.copy(
+                                            correctAnswerText =
+                                                a?.get("correctAnswerText") as? String ?: ""
+                                        )
+                                    }
+                                }
+                                q = q.copy(subQuestions = merged)
+                            } else {
+                                when (q.questionType) {
+                                    "radio" -> q.correctAnswerIndex =
+                                        privateDoc.getLong("correctAnswerIndex")?.toInt() ?: 0
+                                    "checkbox" -> {
+                                        val rawList = privateDoc.get("correctAnswerIndices")
+                                                as? List<*>
+                                        q.correctAnswerIndices = rawList?.mapNotNull {
                                             (it as? Long)?.toInt()
                                         } ?: emptyList()
-                                    )
-                                    else -> sub.copy(
-                                        correctAnswerText =
-                                            a?.get("correctAnswerText") as? String ?: ""
-                                    )
+                                    }
+                                    "descriptive" -> q.correctAnswerText =
+                                        privateDoc.getString("correctAnswerText") ?: ""
                                 }
-                            }
-                            q = q.copy(subQuestions = merged)
-                        } else {
-                            when (q.questionType) {
-                                "radio" -> q.correctAnswerIndex =
-                                    privateDoc.getLong("correctAnswerIndex")?.toInt() ?: 0
-                                "checkbox" -> {
-                                    val rawList = privateDoc.get("correctAnswerIndices")
-                                            as? List<*>
-                                    q.correctAnswerIndices = rawList?.mapNotNull {
-                                        (it as? Long)?.toInt()
-                                    } ?: emptyList()
-                                }
-                                "descriptive" -> q.correctAnswerText =
-                                    privateDoc.getString("correctAnswerText") ?: ""
                             }
                         }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Private answer load failed for ${doc.id}", e)
                     }
-                } catch (e: Exception) {
-                    Log.e("QuizStats", "Private answer load failed for ${doc.id}", e)
-                }
 
-                questions.add(q)
+                    questions.add(q)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to process doc ${doc.id}", e)
+                }
             }
 
             questions
-        } catch (e: Exception) {
-            Log.e("QuizStats", "loadQuestionsWithAnswersBlocking failed", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "loadQuestionsWithAnswersBlocking failed", t)
             emptyList()
         }
     }
