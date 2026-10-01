@@ -8,7 +8,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
-import com.google.firebase.firestore.Query
 import com.smartquiz.databinding.ActivityAdminCheatLogsBinding
 
 class AdminCheatLogsActivity : AppCompatActivity() {
@@ -37,7 +36,6 @@ class AdminCheatLogsActivity : AppCompatActivity() {
             return
         }
 
-        // Use takeIf to handle empty strings as null
         val quizId = intent.getStringExtra("quizId")?.takeIf { it.isNotBlank() }
         supportActionBar?.title = if (quizId != null) "Cheat Logs - Quiz" else "Cheating Logs"
 
@@ -51,40 +49,31 @@ class AdminCheatLogsActivity : AppCompatActivity() {
     private fun loadLogs(quizId: String?) {
         val currentUser = FirebaseAuth.getInstance().currentUser ?: return
 
-        Log.d(TAG_LOG, "Checking permissions for UID: ${currentUser.uid}, quizId: $quizId")
-
-        // 1. Verify user role (Admin or Creator)
         db.collection("users").document(currentUser.uid).get()
             .addOnSuccessListener { doc ->
                 val role = doc.getString("role")?.lowercase() ?: "user"
-                // Check for 'admin', 'super_admin', or 'creator'
-                val isAdmin = (role == "admin" || role == "super_admin")
-                val isCreator = (role == "creator")
-                Log.d(TAG_LOG, "User role: $role, isAdmin: $isAdmin, isCreator: $isCreator")
+                val isAdminRole = (role == "admin" || role == "super_admin")
 
-                if (isAdmin) {
-                    // Admins are authorized for any quiz or global logs
-                    fetchLogs(quizId, true, currentUser.uid)
+                if (isAdminRole) {
+                    fetchLogs(quizId, isAdmin = true, uid = currentUser.uid)
                 } else if (quizId != null) {
-                    // Regular user/creator trying to see specific quiz logs — Check if they created it
                     db.collection("quizzes").document(quizId).get()
                         .addOnSuccessListener { quizDoc ->
                             if (!quizDoc.exists()) {
-                                Log.e(TAG_LOG, "Quiz $quizId does not exist")
                                 Toast.makeText(this, "Error: Quiz not found", Toast.LENGTH_SHORT).show()
                                 finish()
                                 return@addOnSuccessListener
                             }
                             val creatorId = quizDoc.getString("creatorId")
                             if (creatorId == currentUser.uid) {
-                                // User is the creator, proceed to fetch logs.
-                                // We treat them as 'admin' for THIS SPECIFIC quiz to bypass the creatorId filter
-                                // which can cause PERMISSION_DENIED if not indexed or missing in some docs.
-                                Log.d(TAG_LOG, "Authorized as creator for quiz $quizId")
-                                fetchLogs(quizId, true, currentUser.uid)
+                                // FIX: non-admin creator → apply creatorId filter
+                                fetchLogs(quizId, isAdmin = false, uid = currentUser.uid)
                             } else {
-                                Log.w(TAG_LOG, "Unauthorized: User ${currentUser.uid} is not the creator of quiz $quizId")
-                                Toast.makeText(this, "Unauthorized: You did not create this quiz", Toast.LENGTH_LONG).show()
+                                Toast.makeText(
+                                    this,
+                                    "Unauthorized: You did not create this quiz",
+                                    Toast.LENGTH_LONG
+                                ).show()
                                 finish()
                             }
                         }
@@ -93,14 +82,8 @@ class AdminCheatLogsActivity : AppCompatActivity() {
                             Toast.makeText(this, "Error: Could not verify ownership", Toast.LENGTH_LONG).show()
                             finish()
                         }
-                } else if (isCreator) {
-                    // Creator trying to see ALL their logs globally
-                    Log.d(TAG_LOG, "Creator fetching their own global logs")
-                    fetchLogs(null, false, currentUser.uid)
                 } else {
-                    Log.w(TAG_LOG, "Unauthorized: Regular user trying to access global logs")
-                    Toast.makeText(this, "Unauthorized: Admin or Creator access required", Toast.LENGTH_LONG).show()
-                    finish()
+                    fetchLogs(null, isAdmin = false, uid = currentUser.uid)
                 }
             }
             .addOnFailureListener { e ->
@@ -111,7 +94,6 @@ class AdminCheatLogsActivity : AppCompatActivity() {
     }
 
     private fun fetchLogs(quizId: String?, isAdmin: Boolean, uid: String) {
-        // Construct the base query
         var query = if (quizId == null) {
             Log.d(TAG_LOG, "Executing collectionGroup query for 'cheat_logs'")
             db.collectionGroup("cheat_logs")
@@ -120,45 +102,49 @@ class AdminCheatLogsActivity : AppCompatActivity() {
             db.collection("quizzes").document(quizId).collection("cheat_logs")
         }
 
-        // Apply creatorId filter for non-admins. 
-        // This is REQUIRED if rules are structured as 'resource.data.creatorId == request.auth.uid'
+        // Apply creatorId filter for non-admins so Firestore can prove the rule
         if (!isAdmin) {
             Log.d(TAG_LOG, "Applying creatorId filter for UID: $uid")
             query = query.whereEqualTo("creatorId", uid)
         }
 
-        // Apply ordering
-        query.orderBy("timestamp", Query.Direction.DESCENDING)
-            .get()
+        // ============================================================
+        // IMPORTANT: no orderBy here — combining whereEqualTo with
+        // orderBy on a different field requires a Firestore composite
+        // index. Sorting happens client-side instead.
+        // ============================================================
+        query.get()
             .addOnSuccessListener { docs ->
                 Log.d(TAG_LOG, "Successfully fetched ${docs.size()} logs")
                 val fetchedLogs = docs.toObjects(CheatLog::class.java)
-                updateList(fetchedLogs)
 
-                if (fetchedLogs.isEmpty()) {
-                    val msg = if (quizId == null) "No logs found for your quizzes" else "No logs for this quiz"
+                // Newest first
+                val sorted = fetchedLogs.sortedByDescending { it.timestamp }
+
+                updateList(sorted)
+
+                if (sorted.isEmpty()) {
+                    val msg = if (quizId == null)
+                        "No logs found for your quizzes"
+                    else
+                        "No logs for this quiz"
                     Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                 }
             }
             .addOnFailureListener { e ->
-                Log.e(TAG_LOG, "Firestore Query Failed (quizId=$quizId, isAdmin=$isAdmin, uid=$uid)", e)
-
+                Log.e(TAG_LOG, "Firestore Query Failed", e)
                 val message = when {
-                    e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION ->
-                        "Missing Firestore index. Please check Logcat for the link to create it."
-                    e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ->
-                        "Permission Denied: You may not have access to these logs. If you created this quiz, ensure logs include your creatorId."
+                    e is FirebaseFirestoreException
+                            && e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION ->
+                        "Missing Firestore index. Please check Logcat for the link."
+                    e is FirebaseFirestoreException
+                            && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ->
+                        "Permission Denied: You may not have access to these logs."
                     else -> "Error fetching logs: ${e.message}"
                 }
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-
-                // If specific quiz query failed with permission denied, try to explain why
-                if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED && quizId != null) {
-                    Log.e(TAG_LOG, "Hint: Check if the 'cheat_logs' documents in quiz '$quizId' have the 'creatorId' field set to '$uid'")
-                }
             }
     }
-
 
     private fun updateList(newList: List<CheatLog>) {
         logs.clear()
