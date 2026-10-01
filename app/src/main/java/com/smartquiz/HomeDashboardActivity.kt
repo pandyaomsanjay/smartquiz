@@ -44,7 +44,7 @@ class HomeDashboardActivity : AppCompatActivity() {
 
         // ---------- Quick action cards ----------
         binding.chipCreateQuiz.setOnClickListener {
-            startActivity(Intent(this, QuizCreationActivity::class.java))
+            startActivity(Intent(this, QuestionMethodSelectionActivity::class.java))
             overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
         }
         binding.chipJoinQuiz.setOnClickListener {

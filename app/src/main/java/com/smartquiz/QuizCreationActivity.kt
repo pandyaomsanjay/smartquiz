@@ -86,7 +86,7 @@ class QuizCreationActivity : AppCompatActivity() {
         binding.btnSaveDraft.setOnClickListener { saveQuizAsDraft() }
         binding.btnSaveQuiz.setOnClickListener { showSaveConfirmation() }
 
-        // NEW: live update of "Questions added: X / Y required" while typing.
+        // Live update of "Questions added: X / Y required" while typing.
         binding.etConfiguredQuestionCount.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -95,7 +95,7 @@ class QuizCreationActivity : AppCompatActivity() {
             }
         })
 
-        // NEW: clamp to a positive integer on focus lost.
+        // Clamp to a positive integer on focus lost.
         binding.etConfiguredQuestionCount.setOnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) {
                 val txt = binding.etConfiguredQuestionCount.text.toString().trim()
@@ -132,6 +132,24 @@ class QuizCreationActivity : AppCompatActivity() {
         binding.rvQuestionPreview.layoutManager = LinearLayoutManager(this)
         binding.rvQuestionPreview.adapter = adapter
         updateQuestionsCount()
+
+        // ---------- Consume imported questions ----------
+        // If the caller (BulkImportActivity) passed a list of questions via
+        // Intent extras, populate the list and refresh the preview. This is
+        // only applied when we're NOT editing an existing draft.
+        @Suppress("DEPRECATION")
+        val imported = intent.getSerializableExtra("importedQuestions") as? ArrayList<Question>
+        if (!isEditingDraft && !imported.isNullOrEmpty()) {
+            questionsList.clear()
+            questionsList.addAll(imported)
+            updateQuestionsCount()
+            adapter.updateList(questionsList)
+            Toast.makeText(
+                this,
+                "${imported.size} imported questions loaded. Review and save.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
 
         binding.etQuizTitle.setOnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) checkTitleDuplicate()
@@ -174,7 +192,6 @@ class QuizCreationActivity : AppCompatActivity() {
                 binding.etQuizTitle.setText(quiz.title)
                 binding.etQuizDescription.setText(quiz.description)
 
-                // NEW: restore configured question count.
                 if (quiz.configuredQuestionCount > 0) {
                     binding.etConfiguredQuestionCount.setText(
                         quiz.configuredQuestionCount.toString()
@@ -236,7 +253,6 @@ class QuizCreationActivity : AppCompatActivity() {
                 val tasks = questionDocs.map { qDoc ->
                     var q = qDoc.toObject(Question::class.java).apply { questionId = qDoc.id }
 
-                    // Reconstruct scenario sub-questions
                     if (q.questionType == "scenario") {
                         val rawSubs = qDoc.get("subQuestions") as? List<*>
                         val subs = rawSubs?.mapNotNull { raw ->
@@ -257,7 +273,6 @@ class QuizCreationActivity : AppCompatActivity() {
                         q = q.copy(subQuestions = subs)
                     }
 
-                    // Fetch private answers
                     db.collection("quizzes").document(quizId)
                         .collection("questions_private").document(qDoc.id)
                         .get()
@@ -540,7 +555,7 @@ class QuizCreationActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------------
-    // SAVE QUESTIONS
+    // SAVE QUESTIONS — clears existing + batch-writes new ones
     // ------------------------------------------------------------------------
     private fun saveQuestionsToFirestore(quizId: String, onComplete: () -> Unit) {
         db.collection("quizzes").document(quizId).collection("questions")
@@ -564,8 +579,25 @@ class QuizCreationActivity : AppCompatActivity() {
             }
     }
 
+    /**
+     * Writes every question (normal + scenario) into Firestore using
+     * batched commits. Firestore allows a maximum of 500 operations per
+     * batch, so we chunk into groups of 450 to leave headroom.
+     *
+     * For a 100-question quiz this produces ~4 batches and shows a live
+     * progress dialog: "37 / 100 ... 100 / 100".
+     */
     private fun writeQuestions(quizId: String, onComplete: () -> Unit) {
-        val batch = db.batch()
+        // -------------------------------------------------------------
+        // Represent every write as a generic (ref → data) operation.
+        // -------------------------------------------------------------
+        data class Op(
+            val ref: com.google.firebase.firestore.DocumentReference,
+            val data: Map<String, Any>
+        )
+
+        val ops = mutableListOf<Op>()
+
         for (q in questionsList) {
             val publicRef = db.collection("quizzes").document(quizId)
                 .collection("questions").document()
@@ -573,7 +605,7 @@ class QuizCreationActivity : AppCompatActivity() {
                 .collection("questions_private").document(publicRef.id)
 
             if (q.isScenario) {
-                // ---------- Public scenario doc (no correct answers) ----------
+                // ---------- Scenario (public) ----------
                 val publicSubs = q.subQuestions.map { sub ->
                     mapOf(
                         "questionId" to sub.questionId,
@@ -586,14 +618,14 @@ class QuizCreationActivity : AppCompatActivity() {
                         "videoUrl" to sub.videoUrl
                     )
                 }
-                batch.set(publicRef, mapOf(
+                ops.add(Op(publicRef, mapOf(
                     "questionType" to "scenario",
                     "scenarioText" to q.scenarioText,
                     "subQuestions" to publicSubs,
                     "points" to q.totalPoints()
-                ))
+                )))
 
-                // ---------- Private sub-answers keyed by sub-questionId ----------
+                // ---------- Scenario (private answers) ----------
                 val privateAnswers = q.subQuestions.associate { sub ->
                     sub.questionId to when (sub.questionType) {
                         "radio" -> mapOf("correctAnswerIndex" to sub.correctAnswerIndex)
@@ -601,10 +633,10 @@ class QuizCreationActivity : AppCompatActivity() {
                         else -> mapOf("correctAnswerText" to sub.correctAnswerText)
                     }
                 }
-                batch.set(privateRef, mapOf("subAnswers" to privateAnswers))
+                ops.add(Op(privateRef, mapOf("subAnswers" to privateAnswers)))
             } else {
-                // ---------- Normal question ----------
-                batch.set(publicRef, mapOf(
+                // ---------- Normal question (public) ----------
+                ops.add(Op(publicRef, mapOf(
                     "text" to q.text,
                     "options" to q.options,
                     "questionType" to q.questionType,
@@ -612,20 +644,68 @@ class QuizCreationActivity : AppCompatActivity() {
                     "imageUrl" to q.imageUrl,
                     "audioUrl" to q.audioUrl,
                     "videoUrl" to q.videoUrl
-                ))
+                )))
+
+                // ---------- Normal question (private) ----------
                 val privateData = when (q.questionType) {
                     "radio" -> mapOf("correctAnswerIndex" to q.correctAnswerIndex)
                     "checkbox" -> mapOf("correctAnswerIndices" to q.correctAnswerIndices)
                     "descriptive" -> mapOf("correctAnswerText" to q.correctAnswerText)
                     else -> emptyMap<String, Any>()
                 }
-                batch.set(privateRef, privateData)
+                ops.add(Op(privateRef, privateData))
             }
         }
-        batch.commit().addOnSuccessListener { onComplete() }
-            .addOnFailureListener { e ->
-                Toast.makeText(this, "Error saving questions: ${e.message}", Toast.LENGTH_SHORT).show()
+
+        // -------------------------------------------------------------
+        // Split into safe batches and commit sequentially.
+        // -------------------------------------------------------------
+        val batches = ops.chunked(450)
+
+        // Show a progress dialog only when we actually need multiple batches,
+        // so small quizzes stay fast and silent.
+        val progressDialog: AlertDialog? =
+            if (batches.size > 1) {
+                AlertDialog.Builder(this)
+                    .setTitle("Importing questions…")
+                    .setMessage("0 / ${questionsList.size}")
+                    .setCancelable(false)
+                    .create()
+                    .also { it.show() }
+            } else null
+
+        fun commitBatch(batchIndex: Int) {
+            if (batchIndex >= batches.size) {
+                progressDialog?.dismiss()
+                onComplete()
+                return
             }
+
+            val batch = db.batch()
+            batches[batchIndex].forEach { op -> batch.set(op.ref, op.data) }
+
+            batch.commit()
+                .addOnSuccessListener {
+                    // Each batch holds up to 450 ops; 2 ops per question, so
+                    // a full batch writes ~225 questions. We report question
+                    // progress as approximately how many we've written.
+                    val writtenOps = (batchIndex + 1) * 450
+                    val approxQuestions =
+                        (writtenOps / 2).coerceAtMost(questionsList.size)
+                    progressDialog?.setMessage("$approxQuestions / ${questionsList.size}")
+                    commitBatch(batchIndex + 1)
+                }
+                .addOnFailureListener { e ->
+                    progressDialog?.dismiss()
+                    Toast.makeText(
+                        this,
+                        "Error saving questions: ${e.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+        }
+
+        commitBatch(0)
     }
 
     private fun generateUniqueQuizCode(): String {
@@ -781,7 +861,6 @@ class QuizCreationActivity : AppCompatActivity() {
     // ADD / EDIT QUESTION DIALOG — routes SCENARIO to the scenario editor
     // ------------------------------------------------------------------------
     private fun showAddQuestionDialog(existingQuestion: Question?) {
-        // If editing an existing scenario, jump straight to the scenario editor.
         if (existingQuestion?.isScenario == true) {
             showAddScenarioDialog(existingQuestion)
             return
@@ -868,7 +947,6 @@ class QuizCreationActivity : AppCompatActivity() {
             }
         }
 
-        // The spinner contains Radio / Checkbox / Descriptive / Scenario.
         spinnerType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 when (position) {
@@ -894,7 +972,6 @@ class QuizCreationActivity : AppCompatActivity() {
                         llCorrectCheckbox.visibility = View.GONE
                     }
                     3 -> {
-                        // Scenario — hide all sub-fields; editor opens on submit.
                         llOptions.visibility = View.GONE
                         llDescriptive.visibility = View.GONE
                         tvCorrectRadio.visibility = View.GONE
@@ -915,7 +992,6 @@ class QuizCreationActivity : AppCompatActivity() {
             .setTitle(if (existingQuestion != null) "Edit Question" else "Add Question")
             .setView(dialogView)
             .setPositiveButton(if (existingQuestion != null) "Update" else "Add") { _, _ ->
-                // Route to scenario editor if the user chose Scenario.
                 if (spinnerType.selectedItemPosition == 3) {
                     dialogView.post { showAddScenarioDialog(null) }
                     return@setPositiveButton
@@ -1102,9 +1178,6 @@ class QuizCreationActivity : AppCompatActivity() {
             .show()
     }
 
-    /**
-     * Modal to add/edit a single sub-question inside the scenario editor.
-     */
     private fun showSubQuestionDialog(editIndex: Int?, onDone: () -> Unit) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_add_question, null)
         val etQuestionText = dialogView.findViewById<EditText>(R.id.etQuestionText)
@@ -1128,7 +1201,6 @@ class QuizCreationActivity : AppCompatActivity() {
         val etAudioUrl = dialogView.findViewById<EditText>(R.id.etAudioUrl)
         val etVideoUrl = dialogView.findViewById<EditText>(R.id.etVideoUrl)
 
-        // Restrict spinner to Radio / Checkbox / Descriptive only.
         val subTypes = resources.getStringArray(R.array.sub_question_types)
         val subAdapter = ArrayAdapter(
             this, android.R.layout.simple_spinner_item, subTypes
@@ -1344,12 +1416,6 @@ class QuizCreationActivity : AppCompatActivity() {
             .show()
     }
 
-    /**
-     * Updates the "Questions added: N" label.
-     * Counts actual child questions (scenario sub-questions + normal questions).
-     * The scenario container itself is not counted.
-     * Also compares against the configured total and appends a hint.
-     */
     private fun updateQuestionsCount() {
         val actual = questionsList.sumOf { it.questionCount() }
         val configured = binding.etConfiguredQuestionCount.text.toString().toIntOrNull() ?: 0
@@ -1402,7 +1468,6 @@ class QuizCreationActivity : AppCompatActivity() {
             return false
         }
 
-        // ---------- NEW: configured question count validation ----------
         val configuredCount = binding.etConfiguredQuestionCount.text.toString().toIntOrNull() ?: 0
         if (configuredCount <= 0) {
             binding.etConfiguredQuestionCount.error = "Enter the total number of questions"
@@ -1420,7 +1485,6 @@ class QuizCreationActivity : AppCompatActivity() {
             return false
         }
 
-        // ---------- Validate every question (normal + scenario sub-questions) ----------
         for (entry in questionsList) {
 
             if (entry.isScenario) {
@@ -1459,7 +1523,6 @@ class QuizCreationActivity : AppCompatActivity() {
                 continue
             }
 
-            // Normal questions
             if (entry.text.isBlank()) {
                 Toast.makeText(this, "One or more questions have empty text", Toast.LENGTH_SHORT).show()
                 return false
@@ -1492,7 +1555,6 @@ class QuizCreationActivity : AppCompatActivity() {
             }
         }
 
-        // ---------- NEW: configured vs. actual total ----------
         val actualCount = questionsList.sumOf { it.questionCount() }
         if (actualCount != configuredCount) {
             val message = if (actualCount < configuredCount) {
@@ -1513,7 +1575,6 @@ class QuizCreationActivity : AppCompatActivity() {
             return false
         }
 
-        // ---------- Timer validation (unchanged) ----------
         val timerType = when (binding.radioGroupTimerType.checkedRadioButtonId) {
             R.id.radioWholeQuizTimer -> "WHOLE_QUIZ"
             R.id.radioPerQuestionTimer -> "PER_QUESTION"

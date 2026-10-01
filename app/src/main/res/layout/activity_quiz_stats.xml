@@ -26,7 +26,9 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- Quiz Code & QR Section -->
+            <!-- ====================================================== -->
+            <!-- Quiz Code & QR Section                                  -->
+            <!-- ====================================================== -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardQuizInfo"
                 android:layout_width="match_parent"
@@ -81,7 +83,9 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Summary Cards -->
+            <!-- ====================================================== -->
+            <!-- Summary Cards (Participants / Completion / Avg Score)  -->
+            <!-- ====================================================== -->
             <LinearLayout
                 android:id="@+id/summaryContainer"
                 android:layout_width="match_parent"
@@ -181,12 +185,15 @@
                 </androidx.cardview.widget.CardView>
             </LinearLayout>
 
-            <!-- Additional summary: Highest, Lowest, Avg Duration -->
+            <!-- ====================================================== -->
+            <!-- Additional summary: Highest, Lowest, Avg Duration       -->
+            <!-- ====================================================== -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:layout_marginHorizontal="16dp"
+                android:layout_marginTop="8dp"
                 android:layout_marginBottom="8dp"
                 android:weightSum="3">
 
@@ -220,7 +227,9 @@
                     android:gravity="end" />
             </LinearLayout>
 
-            <!-- Sorting Spinner -->
+            <!-- ====================================================== -->
+            <!-- Sorting Spinner                                         -->
+            <!-- ====================================================== -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -245,7 +254,9 @@
                     android:entries="@array/sort_options" />
             </LinearLayout>
 
-            <!-- Chart -->
+            <!-- ====================================================== -->
+            <!-- Score Distribution Chart                                -->
+            <!-- ====================================================== -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -261,7 +272,9 @@
                 android:layout_height="250dp"
                 android:layout_margin="8dp" />
 
-            <!-- Search and Export -->
+            <!-- ====================================================== -->
+            <!-- Search                                                  -->
+            <!-- ====================================================== -->
             <EditText
                 android:id="@+id/etSearch"
                 android:layout_width="match_parent"
@@ -272,6 +285,9 @@
                 android:layout_margin="16dp"
                 android:background="@drawable/bg_edittext" />
 
+            <!-- ====================================================== -->
+            <!-- Participant Data Export (CSV / PDF of participant stats)-->
+            <!-- ====================================================== -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -296,7 +312,9 @@
                     style="@style/Widget.Material3.Button.OutlinedButton" />
             </LinearLayout>
 
-            <!-- Download Question Paper Button -->
+            <!-- ====================================================== -->
+            <!-- Download Question Paper / Bulk-Import File              -->
+            <!-- ====================================================== -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -315,7 +333,9 @@
                     app:iconGravity="textStart" />
             </LinearLayout>
 
-            <!-- Cheating Logs -->
+            <!-- ====================================================== -->
+            <!-- View Cheating Logs                                      -->
+            <!-- ====================================================== -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -334,7 +354,9 @@
                     app:iconGravity="textStart" />
             </LinearLayout>
 
-            <!-- Creator Analytics -->
+            <!-- ====================================================== -->
+            <!-- View Creator Analytics                                  -->
+            <!-- ====================================================== -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -357,10 +379,13 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="16dp" />
+
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
-    <!-- Participants List -->
+    <!-- ====================================================== -->
+    <!-- Participants List                                       -->
+    <!-- ====================================================== -->
     <TextView
         android:id="@+id/tvNoData"
         android:layout_width="match_parent"
