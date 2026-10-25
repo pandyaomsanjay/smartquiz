@@ -52,17 +52,9 @@ class ProfileSetupActivity : AppCompatActivity() {
                 }
         }
 
-        binding.ivAvatar.setOnClickListener {
-            openImagePicker()
-        }
-
-        binding.tvChangePhoto.setOnClickListener {
-            openImagePicker()
-        }
-
-        binding.btnSaveProfile.setOnClickListener {
-            saveProfile()
-        }
+        binding.ivAvatar.setOnClickListener { openImagePicker() }
+        binding.tvChangePhoto.setOnClickListener { openImagePicker() }
+        binding.btnSaveProfile.setOnClickListener { saveProfile() }
     }
 
     private fun openImagePicker() {
@@ -109,7 +101,16 @@ class ProfileSetupActivity : AppCompatActivity() {
             .update(updates)
             .addOnSuccessListener {
                 Toast.makeText(this, "Profile saved", Toast.LENGTH_SHORT).show()
-                startActivity(Intent(this, HomeDashboardActivity::class.java))
+
+                // ========================================================
+                // Check if they need to set a password (Google users)
+                // ========================================================
+                val user = auth.currentUser
+                if (!AuthHelper.hasPasswordProvider(user)) {
+                    startActivity(Intent(this, SetPasswordActivity::class.java))
+                } else {
+                    startActivity(Intent(this, HomeDashboardActivity::class.java))
+                }
                 finish()
             }
             .addOnFailureListener { e ->
@@ -118,7 +119,7 @@ class ProfileSetupActivity : AppCompatActivity() {
     }
 
     override fun onSupportNavigateUp(): Boolean {
-        onBackPressed()
+        onBackPressedDispatcher.onBackPressed()
         return true
     }
 }

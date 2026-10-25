@@ -7,16 +7,16 @@ import android.os.Looper
 import android.view.animation.AnimationUtils
 import androidx.appcompat.app.AppCompatActivity
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.smartquiz.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
+
     private lateinit var binding: ActivityMainBinding
     private lateinit var auth: FirebaseAuth
-    private var authListener: FirebaseAuth.AuthStateListener? = null
     private var isNavigated = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Apply splash theme to avoid white flash
         setTheme(R.style.Theme_SmartQuiz_Splash)
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -24,52 +24,56 @@ class MainActivity : AppCompatActivity() {
 
         auth = FirebaseAuth.getInstance()
 
-        // Load animations
+        // Splash Animations
         val fadeIn = AnimationUtils.loadAnimation(this, android.R.anim.fade_in)
         val scaleUp = AnimationUtils.loadAnimation(this, R.anim.scale_up)
         binding.logoImageView.startAnimation(fadeIn)
         binding.appNameTextView.startAnimation(scaleUp)
 
-        // Set up auth state listener
-        authListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
-            val user = firebaseAuth.currentUser
-            runOnUiThread {
-                if (!isNavigated) {
-                    isNavigated = true
-                    if (user != null) {
-                        startActivity(Intent(this, HomeDashboardActivity::class.java))
-                    } else {
-                        startActivity(Intent(this, LoginActivity::class.java))
-                    }
-                    overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
-                    finish()
-                }
-            }
-        }
-
-        // Add the listener
-        auth.addAuthStateListener(authListener!!)
-
-        // Fallback: if the listener doesn't fire (e.g., due to a race condition),
-        // navigate after a timeout to ensure the app doesn't hang.
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (!isNavigated) {
-                isNavigated = true
-                val user = auth.currentUser
-                if (user != null) {
-                    startActivity(Intent(this, HomeDashboardActivity::class.java))
-                } else {
-                    startActivity(Intent(this, LoginActivity::class.java))
-                }
-                overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
-                finish()
-            }
-        }, 3000) // 3 seconds timeout; splash animation is 2 seconds, extra for token refresh
+        // Check Authentication Session
+        checkSession()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // Remove the listener to avoid memory leaks
-        authListener?.let { auth.removeAuthStateListener(it) }
+    private fun checkSession() {
+        val currentUser = auth.currentUser
+
+        // Add a short delay for the splash animation to play
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (isNavigated || isFinishing) return@postDelayed
+            isNavigated = true
+
+            if (currentUser == null) {
+                // Not logged in -> Route to Login
+                navigateTo(LoginActivity::class.java)
+            } else {
+                // Logged in -> Check role from Firestore to route correctly
+                FirebaseFirestore.getInstance().collection("users").document(currentUser.uid).get()
+                    .addOnSuccessListener { doc ->
+                        if (doc.exists()) {
+                            val role = doc.getString("role")?.lowercase() ?: "user"
+                            if (role == "admin" || role == "super_admin") {
+                                navigateTo(AdminPanelActivity::class.java)
+                            } else {
+                                navigateTo(HomeDashboardActivity::class.java)
+                            }
+                        } else {
+                            // Fallback if Auth exists but Firestore doc is missing
+                            navigateTo(HomeDashboardActivity::class.java)
+                        }
+                    }
+                    .addOnFailureListener {
+                        // Network failure fallback -> assume normal user
+                        navigateTo(HomeDashboardActivity::class.java)
+                    }
+            }
+        }, 1500) // 1.5 second splash delay
+    }
+
+    private fun navigateTo(target: Class<*>) {
+        val intent = Intent(this, target)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+        finish()
     }
 }

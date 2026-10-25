@@ -18,12 +18,15 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.smartquiz.databinding.ActivitySignupBinding
 
 class SignupActivity : AppCompatActivity() {
+
     private lateinit var binding: ActivitySignupBinding
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
     private lateinit var googleSignInClient: GoogleSignInClient
 
-    private val googleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+    private val googleLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
         if (result.resultCode == RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
@@ -46,9 +49,11 @@ class SignupActivity : AppCompatActivity() {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(getString(R.string.default_web_client_id))
             .requestEmail()
+            .requestProfile()
             .build()
         googleSignInClient = GoogleSignIn.getClient(this, gso)
 
+        // Email / Password Signup
         binding.btnSignup.setOnClickListener {
             val email = binding.etEmail.text.toString().trim()
             val password = binding.etPassword.text.toString().trim()
@@ -67,21 +72,25 @@ class SignupActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
+            binding.btnSignup.isEnabled = false
+
             auth.createUserWithEmailAndPassword(email, password)
                 .addOnCompleteListener { task ->
+                    binding.btnSignup.isEnabled = true
                     if (task.isSuccessful) {
                         val placeholderName = email.substringBefore("@")
                         saveUserToFirestore(placeholderName, email)
                     } else {
                         val errorMessage = when (task.exception) {
                             is FirebaseAuthUserCollisionException -> "This email is already registered. Please login."
-                            else -> "Signup failed: ${task.exception?.message}"
+                            else -> AuthHelper.getErrorMessage(task.exception)
                         }
                         Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
                     }
                 }
         }
 
+        // Google Sign Up Button
         binding.btnGoogleSignUp.setOnClickListener {
             googleSignInClient.signOut().addOnCompleteListener {
                 val signInIntent = googleSignInClient.signInIntent
@@ -98,9 +107,7 @@ class SignupActivity : AppCompatActivity() {
     private fun safeFinish() {
         if (!isFinishing && !isDestroyed) {
             Handler(Looper.getMainLooper()).post {
-                if (!isFinishing && !isDestroyed) {
-                    finish()
-                }
+                if (!isFinishing && !isDestroyed) finish()
             }
         }
     }
@@ -109,28 +116,38 @@ class SignupActivity : AppCompatActivity() {
         val credential = GoogleAuthProvider.getCredential(idToken, null)
         auth.signInWithCredential(credential)
             .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    val user = auth.currentUser
-                    if (task.result.additionalUserInfo?.isNewUser == true) {
-                        val name = user?.displayName ?: user?.email?.substringBefore("@") ?: "User"
-                        val email = user?.email ?: ""
-                        saveUserToFirestore(name, email)
-                    } else {
-                        Toast.makeText(this, "Welcome back! You are now logged in.", Toast.LENGTH_SHORT).show()
-                        startActivity(Intent(this, HomeDashboardActivity::class.java))
-                        safeFinish()
-                    }
-                } else {
-                    Toast.makeText(this, "Google sign up failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                if (!task.isSuccessful) {
+                    Toast.makeText(this, AuthHelper.getErrorMessage(task.exception), Toast.LENGTH_SHORT).show()
+                    return@addOnCompleteListener
                 }
+
+                val user = auth.currentUser
+                val uid = user?.uid
+                if (uid == null) return@addOnCompleteListener
+
+                db.collection("users").document(uid).get()
+                    .addOnSuccessListener { doc ->
+                        if (doc.exists()) {
+                            // User already exists -> Just log them in
+                            Toast.makeText(this, "Welcome back! You are now logged in.", Toast.LENGTH_SHORT).show()
+                            navigateToHome(uid)
+                        } else {
+                            // Brand-new user -> Explicit registration flow
+                            val name = user.displayName?.takeIf { it.isNotBlank() } ?: user.email?.substringBefore("@") ?: "User"
+                            val email = user.email ?: ""
+                            saveUserToFirestore(name, email)
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                        auth.signOut()
+                    }
             }
     }
 
     private fun saveUserToFirestore(name: String, email: String) {
-        val uid = auth.currentUser?.uid ?: run {
-            Toast.makeText(this, "Authentication failed. Please try again.", Toast.LENGTH_SHORT).show()
-            return
-        }
+        val uid = auth.currentUser?.uid ?: return
+
         val userMap = hashMapOf(
             "uid" to uid,
             "name" to name,
@@ -142,14 +159,26 @@ class SignupActivity : AppCompatActivity() {
             "badges" to emptyList<String>(),
             "isBanned" to false
         )
+
         db.collection("users").document(uid).set(userMap)
             .addOnSuccessListener {
-                // Go to Profile Setup so user can set/change name and avatar
+                // Route to Profile Setup (which will handle routing to Set Password)
                 startActivity(Intent(this, ProfileSetupActivity::class.java))
                 safeFinish()
             }
             .addOnFailureListener { e ->
                 Toast.makeText(this, "Failed to save user: ${e.message}", Toast.LENGTH_SHORT).show()
             }
+    }
+
+    private fun navigateToHome(uid: String) {
+        db.collection("users").document(uid).get().addOnSuccessListener { doc ->
+            val role = doc.getString("role")?.lowercase() ?: "user"
+            val target = if (role == "admin" || role == "super_admin") AdminPanelActivity::class.java else HomeDashboardActivity::class.java
+            val intent = Intent(this, target)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            startActivity(intent)
+            safeFinish()
+        }
     }
 }

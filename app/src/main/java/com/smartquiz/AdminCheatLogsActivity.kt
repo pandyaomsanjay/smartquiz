@@ -27,8 +27,7 @@ class AdminCheatLogsActivity : AppCompatActivity() {
         supportActionBar?.setHomeAsUpIndicator(R.drawable.ic_back)
 
         db = FirebaseFirestore.getInstance()
-        val auth = FirebaseAuth.getInstance()
-        val currentUser = auth.currentUser
+        val currentUser = FirebaseAuth.getInstance().currentUser
 
         if (currentUser == null) {
             Toast.makeText(this, "Authentication required", Toast.LENGTH_LONG).show()
@@ -37,7 +36,8 @@ class AdminCheatLogsActivity : AppCompatActivity() {
         }
 
         val quizId = intent.getStringExtra("quizId")?.takeIf { it.isNotBlank() }
-        supportActionBar?.title = if (quizId != null) "Cheat Logs - Quiz" else "Cheating Logs"
+        supportActionBar?.title =
+            if (quizId != null) "Cheat Logs - Quiz" else "Cheating Logs"
 
         adapter = CheatLogAdapter(logs)
         binding.rvCheatLogs.layoutManager = LinearLayoutManager(this)
@@ -48,108 +48,79 @@ class AdminCheatLogsActivity : AppCompatActivity() {
 
     private fun loadLogs(quizId: String?) {
         val currentUser = FirebaseAuth.getInstance().currentUser ?: return
+        val uid = currentUser.uid
 
-        db.collection("users").document(currentUser.uid).get()
-            .addOnSuccessListener { doc ->
-                val role = doc.getString("role")?.lowercase() ?: "user"
-                val isAdminRole = (role == "admin" || role == "super_admin")
-
-                if (isAdminRole) {
-                    fetchLogs(quizId, isAdmin = true, uid = currentUser.uid)
-                } else if (quizId != null) {
-                    db.collection("quizzes").document(quizId).get()
-                        .addOnSuccessListener { quizDoc ->
-                            if (!quizDoc.exists()) {
-                                Toast.makeText(this, "Error: Quiz not found", Toast.LENGTH_SHORT).show()
-                                finish()
-                                return@addOnSuccessListener
-                            }
-                            val creatorId = quizDoc.getString("creatorId")
-                            if (creatorId == currentUser.uid) {
-                                // FIX: non-admin creator → apply creatorId filter
-                                fetchLogs(quizId, isAdmin = false, uid = currentUser.uid)
-                            } else {
-                                Toast.makeText(
-                                    this,
-                                    "Unauthorized: You did not create this quiz",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                                finish()
-                            }
-                        }
-                        .addOnFailureListener { e ->
-                            Log.e(TAG_LOG, "Failed to verify quiz ownership", e)
-                            Toast.makeText(this, "Error: Could not verify ownership", Toast.LENGTH_LONG).show()
-                            finish()
-                        }
-                } else {
-                    fetchLogs(null, isAdmin = false, uid = currentUser.uid)
+        if (quizId != null) {
+            // ---------- Per-quiz logs ----------
+            // Verify the caller created the quiz (or has custom claim admin).
+            db.collection("quizzes").document(quizId).get()
+                .addOnSuccessListener { quizDoc ->
+                    if (!quizDoc.exists()) {
+                        Toast.makeText(this, "Quiz not found", Toast.LENGTH_SHORT).show()
+                        finish()
+                        return@addOnSuccessListener
+                    }
+                    val creatorId = quizDoc.getString("creatorId") ?: ""
+                    if (creatorId != uid) {
+                        Toast.makeText(
+                            this,
+                            "You can only view cheat logs for quizzes you created",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        finish()
+                        return@addOnSuccessListener
+                    }
+                    fetchLogs(quizId, creatorIdFilter = uid, uid = uid)
                 }
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG_LOG, "Failed to verify user role", e)
-                Toast.makeText(this, "Error: Could not verify permissions", Toast.LENGTH_LONG).show()
-                finish()
-            }
+                .addOnFailureListener { e ->
+                    Log.e(TAG_LOG, "quiz lookup failed", e)
+                    Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    finish()
+                }
+        } else {
+            // ---------- Global view ----------
+            // Only the current user's own quizzes' logs (rule-compatible).
+            fetchLogs(quizId = null, creatorIdFilter = uid, uid = uid)
+        }
     }
 
-    private fun fetchLogs(quizId: String?, isAdmin: Boolean, uid: String) {
+    private fun fetchLogs(quizId: String?, creatorIdFilter: String, uid: String) {
         var query = if (quizId == null) {
-            Log.d(TAG_LOG, "Executing collectionGroup query for 'cheat_logs'")
             db.collectionGroup("cheat_logs")
         } else {
-            Log.d(TAG_LOG, "Executing collection query for 'cheat_logs' in quiz: $quizId")
             db.collection("quizzes").document(quizId).collection("cheat_logs")
         }
 
-        // Apply creatorId filter for non-admins so Firestore can prove the rule
-        if (!isAdmin) {
-            Log.d(TAG_LOG, "Applying creatorId filter for UID: $uid")
-            query = query.whereEqualTo("creatorId", uid)
-        }
+        // Rule-compatible filter
+        query = query.whereEqualTo("creatorId", creatorIdFilter)
 
-        // ============================================================
-        // IMPORTANT: no orderBy here — combining whereEqualTo with
-        // orderBy on a different field requires a Firestore composite
-        // index. Sorting happens client-side instead.
-        // ============================================================
         query.get()
             .addOnSuccessListener { docs ->
-                Log.d(TAG_LOG, "Successfully fetched ${docs.size()} logs")
-                val fetchedLogs = docs.toObjects(CheatLog::class.java)
-
-                // Newest first
-                val sorted = fetchedLogs.sortedByDescending { it.timestamp }
-
-                updateList(sorted)
+                val fetched = docs.toObjects(CheatLog::class.java)
+                val sorted = fetched.sortedByDescending { it.timestamp }
+                logs.clear()
+                logs.addAll(sorted)
+                adapter.notifyDataSetChanged()
 
                 if (sorted.isEmpty()) {
                     val msg = if (quizId == null)
-                        "No logs found for your quizzes"
-                    else
-                        "No logs for this quiz"
+                        "No logs found" else "No logs for this quiz"
                     Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                 }
             }
             .addOnFailureListener { e ->
-                Log.e(TAG_LOG, "Firestore Query Failed", e)
+                Log.e(TAG_LOG, "query failed (quizId=$quizId)", e)
                 val message = when {
                     e is FirebaseFirestoreException
-                            && e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION ->
-                        "Missing Firestore index. Please check Logcat for the link."
-                    e is FirebaseFirestoreException
                             && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ->
-                        "Permission Denied: You may not have access to these logs."
-                    else -> "Error fetching logs: ${e.message}"
+                        "You can only view cheat logs for your own quizzes"
+                    e is FirebaseFirestoreException
+                            && e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION ->
+                        "Missing index. Check Logcat."
+                    else -> "Error: ${e.message}"
                 }
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             }
-    }
-
-    private fun updateList(newList: List<CheatLog>) {
-        logs.clear()
-        logs.addAll(newList)
-        adapter.notifyDataSetChanged()
     }
 
     override fun onSupportNavigateUp(): Boolean {

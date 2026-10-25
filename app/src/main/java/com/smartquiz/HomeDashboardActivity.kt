@@ -11,8 +11,10 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.bumptech.glide.Glide
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Source
 import com.smartquiz.databinding.ActivityHomeDashboardBinding
 
 class HomeDashboardActivity : AppCompatActivity() {
@@ -28,6 +30,11 @@ class HomeDashboardActivity : AppCompatActivity() {
     // Live listener for "Quizzes Joined"
     private var joinedQuizzesListener: ListenerRegistration? = null
 
+    // Live listener for the current user's profile data.
+    // Any change to users/{uid} (name, avatar, role, streak, …)
+    // instantly updates the Home screen.
+    private var userDataListener: ListenerRegistration? = null
+
     private var isFirstResume = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,7 +47,8 @@ class HomeDashboardActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
 
-        loadUserData()
+        // Attach the live user-data listener (updates name / avatar / role / streak)
+        observeUserData()
 
         // ---------- Quick action cards ----------
         binding.chipCreateQuiz.setOnClickListener {
@@ -78,6 +86,8 @@ class HomeDashboardActivity : AppCompatActivity() {
 
                     joinedQuizzesListener?.remove()
                     joinedQuizzesListener = null
+                    userDataListener?.remove()
+                    userDataListener = null
 
                     val intent = Intent(this, LoginActivity::class.java)
                     intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -91,13 +101,12 @@ class HomeDashboardActivity : AppCompatActivity() {
 
         // ---------- Public quiz section ----------
         setupPublicQuizSection()
-        // Actual load happens in onResume()
     }
 
     /**
-     * Reload public quizzes every time Home comes back into the foreground.
-     * This keeps participant counts and the user's join status fresh after
-     * the user joins/attempts a quiz and returns.
+     * Reload public quizzes every time Home comes back into the foreground
+     * with a fresh server fetch (Source.SERVER) so participant counts and
+     * join statuses are always up to date.
      */
     override fun onResume() {
         super.onResume()
@@ -111,6 +120,8 @@ class HomeDashboardActivity : AppCompatActivity() {
         super.onDestroy()
         joinedQuizzesListener?.remove()
         joinedQuizzesListener = null
+        userDataListener?.remove()
+        userDataListener = null
     }
 
     override fun onSupportNavigateUp(): Boolean {
@@ -120,14 +131,104 @@ class HomeDashboardActivity : AppCompatActivity() {
     }
 
     // ==================================================================
+    // USER DATA — live snapshot listener
+    // ==================================================================
+    private fun observeUserData() {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            binding.tvGreeting.text = "Hello, Guest!"
+            binding.tvStreak.text = "🔥 0 day streak"
+            binding.tvRank.text = "#-"
+            binding.tvTotalQuizzes.text = "—"
+            binding.adminCardRow.visibility = View.GONE
+            return
+        }
+
+        // Detach any previous listener before attaching a new one
+        userDataListener?.remove()
+
+        userDataListener = db.collection("users").document(userId)
+            .addSnapshotListener { doc, error ->
+                if (isFinishing || isDestroyed) return@addSnapshotListener
+
+                if (error != null) {
+                    Log.e("HomeDashboard", "User listener failed", error)
+                    binding.tvGreeting.text = "Hello, User!"
+                    return@addSnapshotListener
+                }
+
+                if (doc == null || !doc.exists()) {
+                    binding.tvGreeting.text = "Hello, User!"
+                    binding.adminCardRow.visibility = View.GONE
+                    return@addSnapshotListener
+                }
+
+                // ---------- Name ----------
+                val name = doc.getString("name")?.takeIf { it.isNotBlank() } ?: "User"
+                binding.tvGreeting.text = "Hello, $name!"
+
+                // ---------- Avatar ----------
+                val avatarUrl = doc.getString("avatarUrl")
+                if (!avatarUrl.isNullOrEmpty()) {
+                    Glide.with(this).load(avatarUrl).into(binding.ivProfile)
+                } else {
+                    binding.ivProfile.setImageResource(R.drawable.ic_avatar_placeholder)
+                }
+
+                // ---------- Streak ----------
+                val streak = doc.getLong("streak")?.toInt() ?: 0
+                binding.tvStreak.text = "🔥 $streak day streak"
+
+                // ---------- Rank placeholder ----------
+                binding.tvRank.text = "#1"
+
+                // ---------- Role-based admin card ----------
+                val role = doc.getString("role")?.lowercase() ?: "user"
+                if (role == "admin" || role == "super_admin") {
+                    binding.adminCardRow.visibility = View.VISIBLE
+                    binding.chipAdminPanel.setOnClickListener {
+                        startActivity(Intent(this, AdminPanelActivity::class.java))
+                        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+                    }
+                } else {
+                    binding.adminCardRow.visibility = View.GONE
+                }
+
+                // ---------- Quizzes Joined live count ----------
+                observeJoinedQuizCount(userId)
+            }
+    }
+
+    // ==================================================================
+    // "Quizzes Joined" — real-time count
+    // ==================================================================
+    private fun observeJoinedQuizCount(userId: String) {
+        // Don't detach + reattach if the listener is already active
+        if (joinedQuizzesListener != null) return
+
+        binding.tvTotalQuizzes.text = "—"
+
+        joinedQuizzesListener = db.collection("users")
+            .document(userId)
+            .collection("joinedQuizzes")
+            .addSnapshotListener { snapshot, error ->
+                if (isFinishing || isDestroyed) return@addSnapshotListener
+                if (error != null) {
+                    Log.e("HomeDashboard", "Joined count failed", error)
+                    binding.tvTotalQuizzes.text = "—"
+                    return@addSnapshotListener
+                }
+                binding.tvTotalQuizzes.text = (snapshot?.size() ?: 0).toString()
+            }
+    }
+
+    // ==================================================================
     // PUBLIC QUIZ SECTION
     // ==================================================================
-
     private fun setupPublicQuizSection() {
         publicAdapter = PublicQuizAdapter(emptyList()) { item ->
             val quiz = item.quiz
             when {
-                // User already completed → Instructions screen shows "Completed"
                 item.userJoinStatus == "Completed" -> {
                     val intent = Intent(this, QuizInstructionsActivity::class.java)
                     intent.putExtra("quizId", quiz.quizId)
@@ -136,7 +237,6 @@ class HomeDashboardActivity : AppCompatActivity() {
                     startActivity(intent)
                     overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
                 }
-                // User is in-progress → resume attempt
                 item.userJoinStatus == "In Progress" -> {
                     val intent = Intent(this, QuizAttemptActivity::class.java)
                     intent.putExtra("quizId", quiz.quizId)
@@ -145,7 +245,6 @@ class HomeDashboardActivity : AppCompatActivity() {
                     startActivity(intent)
                     overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
                 }
-                // Not joined yet → go to instructions
                 item.status.isJoinable -> {
                     val intent = Intent(this, QuizInstructionsActivity::class.java)
                     intent.putExtra("quizId", quiz.quizId)
@@ -168,11 +267,14 @@ class HomeDashboardActivity : AppCompatActivity() {
     }
 
     /**
-     * Loads public quizzes.
+     * Loads public quizzes with a fresh server fetch (bypasses Firestore
+     * offline cache) so that:
+     *   • participant counts reflect the latest join
+     *   • lifecycle statuses are up to date
+     *   • the current user's join status is accurate
      *
-     * NOTE: We intentionally do NOT use `.orderBy("deadline")` here because
-     * combining 3 equality filters + 1 orderBy requires a Firestore composite
-     * index. To avoid the FAILED_PRECONDITION error, we sort on the client.
+     * Sorting is done client-side to avoid needing a composite index on
+     * `visibility + status + archived + deadline`.
      */
     private fun loadPublicQuizzes() {
         binding.progressPublic.visibility = View.VISIBLE
@@ -186,11 +288,10 @@ class HomeDashboardActivity : AppCompatActivity() {
             .whereEqualTo("status", "PUBLISHED")
             .whereEqualTo("archived", false)
             .limit(50)
-            .get()
+            .get(Source.SERVER)   // ← force fresh server data, bypass cache
             .addOnSuccessListener { docs ->
                 if (isFinishing) return@addOnSuccessListener
 
-                // Sort by deadline (descending) on the client — no index needed.
                 val quizzes = docs.mapNotNull { doc ->
                     doc.toObject(Quiz::class.java)?.apply { quizId = doc.id }
                 }.sortedByDescending { it.deadline }
@@ -207,11 +308,11 @@ class HomeDashboardActivity : AppCompatActivity() {
                 val creatorIds = quizzes.map { it.creatorId }.distinct()
                 val creatorTasks = creatorIds.map { db.collection("users").document(it).get() }
 
-                // 2) Fetch current user's joined quizzes (for button state)
+                // 2) Fetch current user's joined quizzes (fresh server data)
                 val joinedTask = if (currentUserId != null) {
                     db.collection("users").document(currentUserId)
                         .collection("joinedQuizzes")
-                        .get()
+                        .get(Source.SERVER)
                 } else null
 
                 val allTasks = mutableListOf<com.google.android.gms.tasks.Task<*>>()
@@ -222,7 +323,7 @@ class HomeDashboardActivity : AppCompatActivity() {
                     .addOnSuccessListener {
                         if (isFinishing) return@addOnSuccessListener
 
-                        // ---- Creator name map ----
+                        // Creator name map
                         val nameMap = mutableMapOf<String, String>()
                         creatorTasks.forEach { t ->
                             if (t.isSuccessful) {
@@ -231,7 +332,7 @@ class HomeDashboardActivity : AppCompatActivity() {
                             }
                         }
 
-                        // ---- User's joined map (quizId -> status) ----
+                        // User join status map
                         val joinedMap = mutableMapOf<String, String>()
                         if (joinedTask != null && joinedTask.isSuccessful) {
                             joinedTask.result.forEach { doc ->
@@ -241,7 +342,6 @@ class HomeDashboardActivity : AppCompatActivity() {
                             }
                         }
 
-                        // ---- Build adapter items ----
                         val items = quizzes.map { q ->
                             PublicQuizAdapter.PublicQuizItem(
                                 quiz = q,
@@ -258,7 +358,7 @@ class HomeDashboardActivity : AppCompatActivity() {
                     }
                     .addOnFailureListener {
                         if (isFinishing) return@addOnFailureListener
-                        // Fallback: show quizzes without creator name/join status
+                        // Fallback: show quizzes without resolved creator / join status
                         val items = quizzes.map { q ->
                             PublicQuizAdapter.PublicQuizItem(
                                 quiz = q,
@@ -275,87 +375,15 @@ class HomeDashboardActivity : AppCompatActivity() {
             .addOnFailureListener { e ->
                 if (isFinishing) return@addOnFailureListener
                 Log.e("HomeDashboard", "loadPublicQuizzes failed", e)
-
                 binding.progressPublic.visibility = View.GONE
                 binding.tvEmptyPublicQuizzes.visibility = View.VISIBLE
 
-                // Friendly message for missing-index errors
                 val msg = if (e.message?.contains("FAILED_PRECONDITION") == true) {
                     "Public quizzes are temporarily unavailable. Please try again."
                 } else {
                     "Failed to load public quizzes."
                 }
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-            }
-    }
-
-    // ==================================================================
-    // USER DATA
-    // ==================================================================
-
-    private fun loadUserData() {
-        val userId = auth.currentUser?.uid ?: run {
-            binding.tvGreeting.text = "Hello, Guest!"
-            binding.tvStreak.text = "🔥 0 day streak"
-            binding.tvRank.text = "#-"
-            binding.tvTotalQuizzes.text = "—"
-            binding.adminCardRow.visibility = View.GONE
-            return
-        }
-
-        db.collection("users").document(userId).get()
-            .addOnSuccessListener { doc ->
-                if (isFinishing) return@addOnSuccessListener
-                val name = doc.getString("name") ?: "User"
-                binding.tvGreeting.text = "Hello, $name!"
-                val avatarUrl = doc.getString("avatarUrl")
-                if (!avatarUrl.isNullOrEmpty()) {
-                    Glide.with(this).load(avatarUrl).into(binding.ivProfile)
-                }
-                val streak = doc.getLong("streak")?.toInt() ?: 0
-                binding.tvStreak.text = "🔥 $streak day streak"
-                binding.tvRank.text = "#1"
-
-                // Only "admin" / "super_admin" see the Admin card.
-                val role = doc.getString("role")?.lowercase() ?: "user"
-                if (role == "admin" || role == "super_admin") {
-                    binding.adminCardRow.visibility = View.VISIBLE
-                    binding.chipAdminPanel.setOnClickListener {
-                        startActivity(Intent(this, AdminPanelActivity::class.java))
-                        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
-                    }
-                } else {
-                    binding.adminCardRow.visibility = View.GONE
-                }
-
-                observeJoinedQuizCount(userId)
-            }
-            .addOnFailureListener {
-                if (!isFinishing) {
-                    binding.tvGreeting.text = "Hello, User!"
-                    observeJoinedQuizCount(userId)
-                }
-            }
-    }
-
-    // ==================================================================
-    // "Quizzes Joined" — real-time count
-    // ==================================================================
-    private fun observeJoinedQuizCount(userId: String) {
-        binding.tvTotalQuizzes.text = "—"
-        joinedQuizzesListener?.remove()
-
-        joinedQuizzesListener = db.collection("users")
-            .document(userId)
-            .collection("joinedQuizzes")
-            .addSnapshotListener { snapshot, error ->
-                if (isFinishing || isDestroyed) return@addSnapshotListener
-                if (error != null) {
-                    Log.e("HomeDashboard", "Joined count failed", error)
-                    binding.tvTotalQuizzes.text = "—"
-                    return@addSnapshotListener
-                }
-                binding.tvTotalQuizzes.text = (snapshot?.size() ?: 0).toString()
             }
     }
 }

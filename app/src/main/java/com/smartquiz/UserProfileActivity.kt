@@ -28,7 +28,9 @@ class UserProfileActivity : AppCompatActivity() {
     private var selectedImageUri: Uri? = null
 
     // Image picker
-    private val imagePickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+    private val imagePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
             selectedImageUri = result.data?.data
             selectedImageUri?.let {
@@ -127,8 +129,11 @@ class UserProfileActivity : AppCompatActivity() {
         val uid = auth.currentUser?.uid ?: return
         db.collection("users").document(uid).update("name", newName)
             .addOnSuccessListener {
+                // Update the local UI immediately
                 binding.tvNameDisplay.text = newName
                 Toast.makeText(this, "Name updated", Toast.LENGTH_SHORT).show()
+                // Home screen's snapshot listener will pick up the change
+                // automatically — no manual refresh needed.
             }
             .addOnFailureListener { e ->
                 Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -137,7 +142,8 @@ class UserProfileActivity : AppCompatActivity() {
 
     private fun setupBadges(badges: List<String>) {
         val adapter = BadgesAdapter(badges)
-        binding.rvBadges.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        binding.rvBadges.layoutManager =
+            LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         binding.rvBadges.adapter = adapter
     }
 

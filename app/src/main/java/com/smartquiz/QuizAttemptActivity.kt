@@ -258,13 +258,26 @@ class QuizAttemptActivity : AppCompatActivity() {
         runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
     }
 
+    // ================================================================
+    // CHEAT EVENT LOGGING
+    // ================================================================
+    /**
+     * We deliberately pass empty strings for userName and email here.
+     * CheatLogger resolves the current profile name and email from the
+     * Firestore `users/{uid}` document — which is where the actual name
+     * lives for email/password accounts. `auth.currentUser.displayName`
+     * is null for those users, so we no longer rely on it.
+     */
     private fun logCheatEvent(eventType: String, violationNumber: Int) {
         val userId = auth.currentUser?.uid ?: return
-        val userName = auth.currentUser?.displayName ?: ""
-        val email = auth.currentUser?.email ?: ""
-        val currentCreatorId = if (creatorId.isNotEmpty()) creatorId
-        else if (::quiz.isInitialized) quiz.creatorId
-        else ""
+
+        val currentCreatorId = if (creatorId.isNotEmpty()) {
+            creatorId
+        } else if (::quiz.isInitialized) {
+            quiz.creatorId
+        } else {
+            ""
+        }
 
         CheatLogger.logCheatEvent(
             context = applicationContext,
@@ -273,8 +286,8 @@ class QuizAttemptActivity : AppCompatActivity() {
             quizTitle = quizTitle,
             creatorId = currentCreatorId,
             userId = userId,
-            userName = userName,
-            email = email
+            userName = "",   // resolved by CheatLogger from Firestore
+            email = ""       // resolved by CheatLogger from Firestore
         )
     }
 
@@ -305,7 +318,9 @@ class QuizAttemptActivity : AppCompatActivity() {
         val attemptRef = db.collection("quizzes").document(quizId)
             .collection("attempts").document(userId)
         attemptRef.update("violationCount", violationCount)
-            .addOnFailureListener { e -> Log.e(TAG, "Failed to save violation count: ${e.message}") }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to save violation count: ${e.message}")
+            }
     }
 
     // ---------- ENABLE/DISABLE ----------
@@ -1031,17 +1046,10 @@ class QuizAttemptActivity : AppCompatActivity() {
                     minLines = 3
                     maxLines = 10
                     setPadding(28, 24, 28, 24)
-                    setTextSize(
-                        android.util.TypedValue.COMPLEX_UNIT_SP,
-                        16f
-                    )
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f)
                     isSingleLine = false
-                    // Reuse the project's existing rounded-rect background
-                    // if present; otherwise the default Material look applies.
                     runCatching {
-                        background = ContextCompat.getDrawable(
-                            context, R.drawable.bg_edittext
-                        )
+                        background = ContextCompat.getDrawable(context, R.drawable.bg_edittext)
                     }
                 }
                 val lp = ViewGroup.MarginLayoutParams(
@@ -1172,12 +1180,9 @@ class QuizAttemptActivity : AppCompatActivity() {
                 else userAnswers.remove(q.questionId)
             }
             "descriptive" -> {
-                // ============================================================
                 // IMPORTANT: do NOT trim the stored value. The student's
                 // original input (including leading/trailing spaces) must
-                // round-trip through autosave/resume unchanged. Blank
-                // answers (all whitespace) are treated as "not answered".
-                // ============================================================
+                // round-trip through autosave/resume unchanged.
                 val editText = container.getChildAt(0) as? EditText
                 val raw = editText?.text.toString()
                 if (raw.isBlank()) {
@@ -1460,11 +1465,8 @@ class QuizAttemptActivity : AppCompatActivity() {
                     selectedSet == correctSet && correctSet.isNotEmpty()
                 }
                 "descriptive" -> {
-                    // ============================================================
                     // Centralised normalization — handles whitespace, case,
                     // numeric, and alphanumeric formatting equivalence.
-                    // The original strings are never mutated here.
-                    // ============================================================
                     val userText = answer as? String
                     val correctText = if (ownerScenarioId.isNotEmpty()) {
                         val map = scenarioPrivateAnswers[ownerScenarioId]?.get(qId)

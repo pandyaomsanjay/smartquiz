@@ -14,6 +14,10 @@ class QuestionMethodSelectionActivity : AppCompatActivity() {
         binding = ActivityQuestionMethodSelectionBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // NEW: Setup Toolbar and Back Button
+        setSupportActionBar(binding.toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+
         binding.cardManual.setOnClickListener {
             startActivity(Intent(this, QuizCreationActivity::class.java))
             finish()
@@ -23,5 +27,11 @@ class QuestionMethodSelectionActivity : AppCompatActivity() {
             startActivity(Intent(this, BulkImportActivity::class.java))
             finish()
         }
+    }
+
+    // NEW: Handle Back Button click
+    override fun onSupportNavigateUp(): Boolean {
+        onBackPressedDispatcher.onBackPressed()
+        return true
     }
 }

@@ -3,12 +3,17 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.smartquiz">
 
-    <!-- Permissions -->
+    <!-- ============================================================= -->
+    <!-- PERMISSIONS -->
+    <!-- ============================================================= -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- ============================================================= -->
+    <!-- QUERIES (required on Android 11+ for GMS + ZXing discovery) -->
+    <!-- ============================================================= -->
     <queries>
         <package android:name="com.google.android.gms" />
         <package android:name="com.android.vending" />
@@ -18,6 +23,9 @@
         </intent>
     </queries>
 
+    <!-- ============================================================= -->
+    <!-- APPLICATION -->
+    <!-- ============================================================= -->
     <application
         android:name=".QuizApplication"
         android:allowBackup="true"
@@ -31,7 +39,9 @@
         android:theme="@style/Theme.SmartQuiz"
         tools:replace="android:theme">
 
-        <!-- FileProvider for sharing images -->
+        <!-- ========================================================= -->
+        <!-- FILE PROVIDER (sharing images, PDFs, CSVs, Excel files) -->
+        <!-- ========================================================= -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -42,82 +52,25 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- ZXing QR scanner activity – overrides library theme & orientation -->
+        <!-- ========================================================= -->
+        <!-- ZXing QR SCANNER (overrides library theme & orientation) -->
+        <!-- ========================================================= -->
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.AppCompat.NoActionBar"
             tools:replace="android:theme,android:screenOrientation" />
 
-        <!-- Your activities -->
+        <!-- ========================================================= -->
+        <!-- GOOGLE PLAY SERVICES VERSION -->
+        <!-- ========================================================= -->
         <meta-data
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version" />
 
-        <activity
-            android:name=".QuizDetailsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".QuizInstructionsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".SubmissionSuccessActivity"
-            android:exported="false" />
-        <activity
-            android:name=".AdminPanelActivity"
-            android:label="Admin Panel"
-            android:parentActivityName=".HomeDashboardActivity" />
-        <activity
-            android:name=".AdminAnnouncementsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".AdminAnalyticsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".AdminCheatLogsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".AdminQuizzesActivity"
-            android:exported="false" />
-        <activity
-            android:name=".FeedbackActivity"
-            android:exported="false" />
-        <activity
-            android:name=".QuizStatsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".QuizAttemptActivity"
-            android:exported="false" />
-        <activity
-            android:name=".SettingsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".UserProfileActivity"
-            android:exported="false" />
-        <activity
-            android:name=".CreatorDashboardActivity"
-            android:exported="false" />
-        <activity
-            android:name=".LeaderboardActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ResultActivity"
-            android:exported="false" />
-        <activity
-            android:name=".JoinQuizActivity"
-            android:exported="false" />
-        <activity
-            android:name=".QuizCreationActivity"
-            android:exported="false" />
-        <activity
-            android:name=".HomeDashboardActivity"
-            android:exported="false" />
-        <activity
-            android:name=".SignupActivity"
-            android:exported="false" />
-        <activity
-            android:name=".LoginActivity"
-            android:exported="false" />
+        <!-- ========================================================= -->
+        <!-- AUTH & ONBOARDING -->
+        <!-- ========================================================= -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -127,8 +80,132 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".LoginActivity"
+            android:exported="false" />
+        <activity
+            android:name=".SignupActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ProfileSetupActivity"
+            android:label="Set up Profile"
+            android:parentActivityName=".SignupActivity" />
 
-        <!-- Firebase messaging service -->
+        <!-- ========================================================= -->
+        <!-- USER HOME & PROFILE -->
+        <!-- ========================================================= -->
+        <activity
+            android:name=".HomeDashboardActivity"
+            android:exported="false" />
+        <activity
+            android:name=".UserProfileActivity"
+            android:exported="false" />
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".TutorialActivity"
+            android:label="Tutorial"
+            android:parentActivityName=".SettingsActivity" />
+
+        <!-- ========================================================= -->
+        <!-- QUIZ CREATION & MANAGEMENT -->
+        <!-- ========================================================= -->
+        <activity
+            android:name=".QuestionMethodSelectionActivity"
+            android:exported="false" />
+        <activity
+            android:name=".BulkImportActivity"
+            android:exported="false" />
+        <activity
+            android:name=".QuizCreationActivity"
+            android:exported="false" />
+        <activity
+            android:name=".DraftQuizzesActivity"
+            android:label="Draft Quizzes"
+            android:parentActivityName=".CreatorDashboardActivity" />
+        <activity
+            android:name=".CreatorDashboardActivity"
+            android:exported="false" />
+        <activity
+            android:name=".CreatorAnalyticsActivity"
+            android:label="Creator Analytics"
+            android:parentActivityName=".QuizStatsActivity" />
+
+        <!-- ========================================================= -->
+        <!-- QUIZ JOINING & ATTEMPTING -->
+        <!-- ========================================================= -->
+        <activity
+            android:name=".JoinQuizActivity"
+            android:exported="false" />
+        <activity
+            android:name=".QuizDetailsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".QuizInstructionsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".QuizAttemptActivity"
+            android:exported="false" />
+        <activity
+            android:name=".SubmissionSuccessActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ResultActivity"
+            android:exported="false" />
+
+        <!-- ========================================================= -->
+        <!-- LEADERBOARDS & STATS -->
+        <!-- ========================================================= -->
+        <activity
+            android:name=".LeaderboardActivity"
+            android:exported="false" />
+        <activity
+            android:name=".QuizLeaderboardActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".QuizStatsActivity"
+            android:exported="false" />
+
+        <!-- ========================================================= -->
+        <!-- FEEDBACK -->
+        <!-- ========================================================= -->
+        <activity
+            android:name=".FeedbackActivity"
+            android:exported="false" />
+
+        <!-- ========================================================= -->
+        <!-- ADMIN -->
+        <!-- ========================================================= -->
+        <activity
+            android:name=".AdminPanelActivity"
+            android:label="Admin Dashboard"
+            android:parentActivityName=".HomeDashboardActivity" />
+        <activity
+            android:name=".AdminUsersActivity"
+            android:label="Manage Users"
+            android:parentActivityName=".AdminPanelActivity" />
+        <activity
+            android:name=".AdminQuizzesActivity"
+            android:label="Manage Quizzes"
+            android:parentActivityName=".AdminPanelActivity" />
+        <activity
+            android:name=".AdminCheatLogsActivity"
+            android:label="Cheat Logs"
+            android:parentActivityName=".AdminPanelActivity" />
+        <activity
+            android:name=".AdminAnnouncementsActivity"
+            android:label="Announcements"
+            android:parentActivityName=".AdminPanelActivity" />
+        <activity
+            android:name=".AdminAnalyticsActivity"
+            android:label="App Analytics"
+            android:parentActivityName=".AdminPanelActivity" />
+
+        <!-- ========================================================= -->
+        <!-- FIREBASE CLOUD MESSAGING SERVICE -->
+        <!-- ========================================================= -->
         <service
             android:name=".MyFirebaseMessagingService"
             android:exported="false">
@@ -138,31 +215,11 @@
         </service>
 
         <activity
-            android:name=".CreatorAnalyticsActivity"
-            android:label="Creator Analytics"
-            android:parentActivityName=".QuizStatsActivity" />
-        <activity
-            android:name=".ProfileSetupActivity"
-            android:label="Set up Profile"
-            android:parentActivityName=".SignupActivity" />
-        <activity
-            android:name=".TutorialActivity"
-            android:label="Tutorial"
-            android:parentActivityName=".SettingsActivity" />
-        <activity
-            android:name=".DraftQuizzesActivity"
-            android:label="Draft Quizzes"
-            android:parentActivityName=".CreatorDashboardActivity" />
-        <activity
-            android:name=".QuizLeaderboardActivity"
+            android:name=".SetPasswordActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
-            android:name=".QuestionMethodSelectionActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-        <activity
-            android:name=".BulkImportActivity"
+            android:name=".ChangePasswordActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
     </application>

@@ -29,14 +29,78 @@ object CheatLogger {
         email: String = ""
     ) {
         val uid = userId ?: auth.currentUser?.uid ?: return
-        val name = userName.ifEmpty { auth.currentUser?.displayName ?: "Unknown" }
-        val mail = email.ifEmpty { auth.currentUser?.email ?: "" }
 
         if (quizId.isEmpty()) {
             Log.e(TAG, "Cannot log cheat event: quizId is empty")
             return
         }
 
+        // ============================================================
+        // Resolve the user's real name and email from Firestore.
+        // `auth.currentUser.displayName` is null for email/password
+        // users, so we cannot rely on it. Firestore users/{uid} is the
+        // single source of truth for the profile name.
+        // ============================================================
+        db.collection("users").document(uid).get()
+            .addOnSuccessListener { userDoc ->
+                val resolvedName = userDoc.getString("name")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: userName.takeIf { it.isNotBlank() }
+                    ?: auth.currentUser?.displayName
+                    ?: "Unknown"
+
+                val resolvedEmail = userDoc.getString("email")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: email.takeIf { it.isNotBlank() }
+                    ?: auth.currentUser?.email
+                    ?: ""
+
+                writeLog(
+                    context = context,
+                    uid = uid,
+                    resolvedName = resolvedName,
+                    resolvedEmail = resolvedEmail,
+                    eventType = eventType,
+                    quizId = quizId,
+                    quizTitle = quizTitle,
+                    creatorId = creatorId
+                )
+            }
+            .addOnFailureListener { e ->
+                // Fallback to whatever we have (avoids losing the log
+                // entirely if Firestore is temporarily unreachable).
+                Log.e(TAG, "Failed to resolve user name from Firestore", e)
+                val fallbackName = userName.takeIf { it.isNotBlank() }
+                    ?: auth.currentUser?.displayName
+                    ?: "Unknown"
+                val fallbackEmail = email.takeIf { it.isNotBlank() }
+                    ?: auth.currentUser?.email
+                    ?: ""
+
+                writeLog(
+                    context = context,
+                    uid = uid,
+                    resolvedName = fallbackName,
+                    resolvedEmail = fallbackEmail,
+                    eventType = eventType,
+                    quizId = quizId,
+                    quizTitle = quizTitle,
+                    creatorId = creatorId
+                )
+            }
+    }
+
+    /** Writes the actual cheat log document to Firestore. */
+    private fun writeLog(
+        context: Context,
+        uid: String,
+        resolvedName: String,
+        resolvedEmail: String,
+        eventType: String,
+        quizId: String,
+        quizTitle: String,
+        creatorId: String
+    ) {
         // Determine if suspicious based on violation count
         val (suspicious, count) = checkSuspicious(context)
 
@@ -46,8 +110,8 @@ object CheatLogger {
 
         val log = CheatLog(
             userId = uid,
-            userName = name,
-            email = mail,
+            userName = resolvedName,
+            email = resolvedEmail,
             quizId = quizId,
             creatorId = creatorId,
             quizTitle = quizTitle,
@@ -63,11 +127,10 @@ object CheatLogger {
             violationCount = count
         )
 
-        // ✅ Save to subcollection of the specific quiz
         db.collection("quizzes").document(quizId).collection("cheat_logs")
             .add(log)
             .addOnSuccessListener {
-                Log.d(TAG, "Cheat log saved: $eventType for quiz $quizId")
+                Log.d(TAG, "Cheat log saved: $eventType for quiz $quizId (user=$resolvedName)")
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Failed to save cheat log: ${e.message}")
