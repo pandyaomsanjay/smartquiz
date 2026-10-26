@@ -42,12 +42,10 @@ class QuizLeaderboardActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
         currentUserId = auth.currentUser?.uid
 
-        // Initialize adapter with empty list
         adapter = LeaderboardAdapter(participants, showScores = true)
         binding.rvLeaderboard.layoutManager = LinearLayoutManager(this)
         binding.rvLeaderboard.adapter = adapter
 
-        // Fetch quiz visibility setting
         db.collection("quizzes").document(quizId).get()
             .addOnSuccessListener { doc ->
                 showScores = doc.getBoolean("showScoreAfterSubmission") ?: true
@@ -69,7 +67,6 @@ class QuizLeaderboardActivity : AppCompatActivity() {
 
     private fun loadLeaderboard() {
         binding.progressBar.visibility = View.VISIBLE
-        // Keep RecyclerView visible but with empty adapter; we'll update later
         binding.rvLeaderboard.visibility = View.VISIBLE
         binding.tvEmpty.visibility = View.GONE
 
@@ -87,8 +84,6 @@ class QuizLeaderboardActivity : AppCompatActivity() {
                     adapter.updateList(participants)
                     return@addOnSuccessListener
                 }
-
-                Log.d(TAG, "Attempts count: ${attempts.size}")
 
                 if (!showScores) {
                     populateSimpleLeaderboard(attempts)
@@ -142,8 +137,6 @@ class QuizLeaderboardActivity : AppCompatActivity() {
             val name = userMap[userId] ?: "Unknown"
             LeaderboardEntry(userId = userId, name = name, totalScore = score)
         }
-
-        Log.d(TAG, "Entries size: ${entries.size}")
 
         if (entries.isEmpty()) {
             binding.progressBar.visibility = View.GONE
@@ -221,12 +214,11 @@ class QuizLeaderboardActivity : AppCompatActivity() {
                 binding.progressBar.visibility = View.GONE
                 binding.tvEmpty.visibility = View.GONE
                 binding.btnViewMyRank.visibility = View.GONE
-                Toast.makeText(this, "Could not load names, showing user IDs", Toast.LENGTH_SHORT).show()
             }
     }
 
     override fun onSupportNavigateUp(): Boolean {
-        onBackPressed()
+        onBackPressedDispatcher.onBackPressed()
         return true
     }
 }

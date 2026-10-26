@@ -9,18 +9,14 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.bumptech.glide.Glide
-import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.AggregateQuerySnapshot
 import com.google.firebase.firestore.AggregateSource
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.smartquiz.databinding.ActivityAdminPanelBinding
 import java.text.SimpleDateFormat
 import java.util.*
 
-/**
- * Admin Dashboard — the entry point for administrators.
- */
 class AdminPanelActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityAdminPanelBinding
@@ -56,6 +52,7 @@ class AdminPanelActivity : AppCompatActivity() {
                     finish()
                     return@addOnSuccessListener
                 }
+
                 bindAdminIdentity(currentUser.uid)
                 loadStatistics()
                 loadRecentQuizzes()
@@ -90,122 +87,134 @@ class AdminPanelActivity : AppCompatActivity() {
 
     // ==================================================================
     // OVERVIEW STATISTICS
-    // NOTE: We use `getCount()` (the Java method) instead of the
-    // `.count` property because AggregateQuerySnapshot implements
-    // Iterable, which confuses the Kotlin property resolver.
     // ==================================================================
     private fun loadStatistics() {
         binding.progressBar.visibility = View.VISIBLE
+        val uid = auth.currentUser?.uid ?: return
 
-        val uid = auth.currentUser?.uid
-        if (uid == null) {
-            binding.progressBar.visibility = View.GONE
-            return
-        }
-
-        // ---------- Total Users ----------
+        // 1. Total Users
         db.collection("users").count().get(AggregateSource.SERVER)
             .addOnSuccessListener { snap ->
-                binding.tvStatUsers.text = snap.getCount().toString()
+                binding.tvStatUsers.text = snap.count.toString()
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "users count failed", e)
                 binding.tvStatUsers.text = "—"
             }
 
-        // ---------- Quizzes: public + own ----------
-        val publicTask = db.collection("quizzes")
-            .whereEqualTo("visibility", "public")
-            .count()
-            .get(AggregateSource.SERVER)
-
-        val ownTask = db.collection("quizzes")
-            .whereEqualTo("creatorId", uid)
-            .count()
-            .get(AggregateSource.SERVER)
-
-        Tasks.whenAllSuccess<AggregateQuerySnapshot>(publicTask, ownTask)
-            .addOnSuccessListener { results ->
-                val publicCount = results.getOrNull(0)?.getCount() ?: 0L
-                val ownCount = results.getOrNull(1)?.getCount() ?: 0L
-                val total = publicCount + ownCount
-
-                binding.tvStatQuizzes.text = total.toString()
-                binding.tvStatActiveQuizzes.text = publicCount.toString()
+        // 2. Total Quizzes (Fetches ALL quizzes globally)
+        db.collection("quizzes").count().get(AggregateSource.SERVER)
+            .addOnSuccessListener { snap ->
+                binding.tvStatQuizzes.text = snap.count.toString()
                 binding.progressBar.visibility = View.GONE
             }
             .addOnFailureListener { e ->
-                Log.e(TAG, "quiz stats failed", e)
+                Log.e(TAG, "quizzes count failed", e)
                 binding.tvStatQuizzes.text = "—"
-                binding.tvStatActiveQuizzes.text = "—"
                 binding.progressBar.visibility = View.GONE
             }
 
-        // ---------- Cheat alerts: own quizzes only ----------
+        // 3. Public Quizzes (Fetches all public quizzes globally)
+        db.collection("quizzes").whereEqualTo("visibility", "public").count().get(AggregateSource.SERVER)
+            .addOnSuccessListener { snap ->
+                binding.tvStatActiveQuizzes.text = snap.count.toString()
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "public quizzes count failed", e)
+                binding.tvStatActiveQuizzes.text = "—"
+            }
+
+        // 4. Cheat Alerts
+        loadCheatAlertsCount(uid)
+    }
+
+    private fun loadCheatAlertsCount(uid: String) {
+        // Try global collectionGroup query first (for Admins)
         db.collectionGroup("cheat_logs")
-            .whereEqualTo("creatorId", uid)
             .count()
             .get(AggregateSource.SERVER)
             .addOnSuccessListener { snap ->
-                binding.tvStatCheatAlerts.text = snap.getCount().toString()
+                binding.tvStatCheatAlerts.text = snap.count.toString()
+            }
+            .addOnFailureListener { e1 ->
+                Log.w(TAG, "Global cheat_logs count unavailable (${e1.message}), trying filtered by creatorId")
+                // Fallback 1: Filtered collectionGroup query by creatorId
+                db.collectionGroup("cheat_logs")
+                    .whereEqualTo("creatorId", uid)
+                    .count()
+                    .get(AggregateSource.SERVER)
+                    .addOnSuccessListener { snap ->
+                        binding.tvStatCheatAlerts.text = snap.count.toString()
+                    }
+                    .addOnFailureListener { e2 ->
+                        Log.w(TAG, "Filtered cheat_logs count failed (${e2.message}), trying per-quiz fallback")
+                        // Fallback 2: Direct subcollection count per quiz
+                        countCheatLogsPerQuiz(uid)
+                    }
+            }
+    }
+
+    private fun countCheatLogsPerQuiz(uid: String) {
+        db.collection("quizzes")
+            .whereEqualTo("creatorId", uid)
+            .get()
+            .addOnSuccessListener { quizDocs ->
+                if (quizDocs.isEmpty) {
+                    binding.tvStatCheatAlerts.text = "0"
+                    return@addOnSuccessListener
+                }
+
+                var totalCount = 0L
+                var pending = quizDocs.size()
+
+                for (doc in quizDocs) {
+                    db.collection("quizzes")
+                        .document(doc.id)
+                        .collection("cheat_logs")
+                        .count()
+                        .get(AggregateSource.SERVER)
+                        .addOnSuccessListener { snap ->
+                            totalCount += snap.count
+                            pending--
+                            if (pending == 0) {
+                                binding.tvStatCheatAlerts.text = totalCount.toString()
+                            }
+                        }
+                        .addOnFailureListener {
+                            pending--
+                            if (pending == 0) {
+                                binding.tvStatCheatAlerts.text = totalCount.toString()
+                            }
+                        }
+                }
             }
             .addOnFailureListener { e ->
-                Log.e(TAG, "cheat_logs count failed", e)
-                binding.tvStatCheatAlerts.text = "—"
+                Log.w(TAG, "Per-quiz cheat_logs count fallback failed: ${e.message}")
+                binding.tvStatCheatAlerts.text = "0"
             }
     }
 
     // ==================================================================
-    // RECENT QUIZZES
+    // RECENT QUIZZES (Fetches latest from all users)
     // ==================================================================
     private fun loadRecentQuizzes() {
-        val uid = auth.currentUser?.uid ?: return
-
-        val publicTask = db.collection("quizzes")
-            .whereEqualTo("visibility", "public")
-            .limit(20)
+        db.collection("quizzes")
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(5)
             .get()
-
-        val ownTask = db.collection("quizzes")
-            .whereEqualTo("creatorId", uid)
-            .limit(20)
-            .get()
-
-        Tasks.whenAllSuccess<com.google.firebase.firestore.QuerySnapshot>(publicTask, ownTask)
-            .addOnSuccessListener { results ->
-                val seen = mutableSetOf<String>()
-                val merged = mutableListOf<Quiz>()
-
-                results.getOrNull(0)?.documents?.forEach { doc ->
-                    if (seen.add(doc.id)) {
-                        try {
-                            doc.toObject(Quiz::class.java)?.let { q ->
-                                q.quizId = doc.id
-                                merged.add(q)
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "parse failed ${doc.id}", e)
+            .addOnSuccessListener { docs ->
+                val recentQuizzes = mutableListOf<Quiz>()
+                docs.forEach { doc ->
+                    try {
+                        doc.toObject(Quiz::class.java)?.let { q ->
+                            q.quizId = doc.id
+                            recentQuizzes.add(q)
                         }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "parse failed ${doc.id}", e)
                     }
                 }
-                results.getOrNull(1)?.documents?.forEach { doc ->
-                    if (seen.add(doc.id)) {
-                        try {
-                            doc.toObject(Quiz::class.java)?.let { q ->
-                                q.quizId = doc.id
-                                merged.add(q)
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "parse failed ${doc.id}", e)
-                        }
-                    }
-                }
-
-                val top5 = merged
-                    .sortedByDescending { it.createdAt }
-                    .take(5)
-
-                renderRecentQuizzes(top5)
+                renderRecentQuizzes(recentQuizzes)
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "recent quizzes failed", e)
@@ -233,8 +242,7 @@ class AdminPanelActivity : AppCompatActivity() {
         quizzes.forEach { quiz ->
             val title = quiz.title.ifBlank { "(untitled)" }
             val visibility = quiz.visibility.replaceFirstChar { it.uppercase() }
-            val createdAt = if (quiz.createdAt > 0)
-                dateFormat.format(Date(quiz.createdAt)) else "—"
+            val createdAt = if (quiz.createdAt > 0) dateFormat.format(Date(quiz.createdAt)) else "—"
 
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -268,15 +276,12 @@ class AdminPanelActivity : AppCompatActivity() {
         binding.cardManageQuizzes.setOnClickListener {
             startActivity(Intent(this, AdminQuizzesActivity::class.java))
         }
-
         binding.cardManageUsers.setOnClickListener {
             startActivity(Intent(this, AdminUsersActivity::class.java))
         }
-
         binding.cardCheatLogs.setOnClickListener {
             startActivity(Intent(this, AdminCheatLogsActivity::class.java))
         }
-
         binding.cardAnnouncements.setOnClickListener {
             startActivity(Intent(this, AdminAnnouncementsActivity::class.java))
         }

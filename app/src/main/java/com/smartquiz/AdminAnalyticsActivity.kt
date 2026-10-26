@@ -127,12 +127,28 @@ class AdminAnalyticsActivity : AppCompatActivity() {
             }
 
         // ---------------- CHEAT ALERTS ----------------
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
         db.collectionGroup("cheat_logs").count().get(AggregateSource.SERVER)
             .addOnSuccessListener { snap ->
                 binding.tvTotalCheatAlerts.text = "Total Cheat Alerts: ${snap.count}"
             }
-            .addOnFailureListener {
-                binding.tvTotalCheatAlerts.text = "Total Cheat Alerts: —"
+            .addOnFailureListener { e1 ->
+                Log.w(TAG, "Global cheat_logs count failed (${e1.message}), trying filtered query")
+                if (uid.isNotEmpty()) {
+                    db.collectionGroup("cheat_logs")
+                        .whereEqualTo("creatorId", uid)
+                        .count()
+                        .get(AggregateSource.SERVER)
+                        .addOnSuccessListener { snap ->
+                            binding.tvTotalCheatAlerts.text = "Total Cheat Alerts: ${snap.count}"
+                        }
+                        .addOnFailureListener { e2 ->
+                            Log.w(TAG, "Filtered cheat_logs count failed: ${e2.message}")
+                            binding.tvTotalCheatAlerts.text = "Total Cheat Alerts: 0"
+                        }
+                } else {
+                    binding.tvTotalCheatAlerts.text = "Total Cheat Alerts: —"
+                }
             }
     }
 

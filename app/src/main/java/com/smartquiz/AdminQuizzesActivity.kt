@@ -13,22 +13,14 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.gms.tasks.Tasks
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.QuerySnapshot
 import com.smartquiz.databinding.ActivityAdminQuizzesBinding
 import com.smartquiz.databinding.ItemAdminQuizBinding
 import java.text.SimpleDateFormat
 import java.util.*
 
-/**
- * Admin — Quiz Management.
- *
- * Loads public quizzes + the admin's own quizzes via two
- * rule-compatible queries and merges them client-side.
- */
 class AdminQuizzesActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityAdminQuizzesBinding
@@ -57,14 +49,12 @@ class AdminQuizzesActivity : AppCompatActivity() {
         binding.rvQuizzes.layoutManager = LinearLayoutManager(this)
         binding.rvQuizzes.adapter = adapter
 
-        // Search
         binding.etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) { applyFilterAndSearch() }
         })
 
-        // Filter chips
         binding.chipGroupFilter.setOnCheckedChangeListener { _, checkedId ->
             currentFilter = when (checkedId) {
                 R.id.chipPublic -> "public"
@@ -78,9 +68,6 @@ class AdminQuizzesActivity : AppCompatActivity() {
         loadQuizzes()
     }
 
-    // ==================================================================
-    // LOAD
-    // ==================================================================
     private fun loadQuizzes() {
         val currentUid = auth.currentUser?.uid
         if (currentUid == null) {
@@ -93,44 +80,21 @@ class AdminQuizzesActivity : AppCompatActivity() {
         binding.tvEmpty.visibility = View.GONE
         allQuizzes.clear()
 
-        // Rule-compatible split queries
-        val publicTask = db.collection("quizzes")
-            .whereEqualTo("visibility", "public")
-            .get()
-
-        val ownTask = db.collection("quizzes")
-            .whereEqualTo("creatorId", currentUid)
-            .get()
-
-        Tasks.whenAllSuccess<QuerySnapshot>(publicTask, ownTask)
-            .addOnSuccessListener { results ->
+        // Fetch ALL quizzes from the database (Matches the Dashboard count of 109)
+        db.collection("quizzes").get()
+            .addOnSuccessListener { docs ->
                 binding.progressBar.visibility = View.GONE
-                val seen = mutableSetOf<String>()
 
-                // Public quizzes
-                results.getOrNull(0)?.documents?.forEach { doc ->
-                    if (seen.add(doc.id)) {
-                        try {
-                            val q = doc.toObject(Quiz::class.java)?.apply { quizId = doc.id }
-                            if (q != null) allQuizzes.add(q)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "parse failed ${doc.id}", e)
-                        }
+                docs.forEach { doc ->
+                    try {
+                        val q = doc.toObject(Quiz::class.java)?.apply { quizId = doc.id }
+                        if (q != null) allQuizzes.add(q)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "parse fail on ${doc.id}", e)
                     }
                 }
 
-                // Own quizzes (avoid duplicates)
-                results.getOrNull(1)?.documents?.forEach { doc ->
-                    if (seen.add(doc.id)) {
-                        try {
-                            val q = doc.toObject(Quiz::class.java)?.apply { quizId = doc.id }
-                            if (q != null) allQuizzes.add(q)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "parse failed ${doc.id}", e)
-                        }
-                    }
-                }
-
+                // Sort newest first
                 allQuizzes.sortByDescending { it.createdAt }
                 applyFilterAndSearch()
             }
@@ -142,19 +106,19 @@ class AdminQuizzesActivity : AppCompatActivity() {
             }
     }
 
-    // ==================================================================
-    // FILTER + SEARCH
-    // ==================================================================
     private fun applyFilterAndSearch() {
         val query = binding.etSearch.text.toString().trim().lowercase()
         filtered.clear()
 
         for (q in allQuizzes) {
+            // A quiz is truly published if its status is PUBLISHED OR if it has a join code
+            val isActuallyPublished = q.status.equals("PUBLISHED", ignoreCase = true) || q.quizCode.isNotEmpty()
+
             val matchesFilter = when (currentFilter) {
                 "public" -> q.visibility == "public"
                 "private" -> q.visibility == "private"
-                "published" -> q.status.equals("PUBLISHED", ignoreCase = true)
-                else -> true
+                "published" -> isActuallyPublished
+                else -> true // "All" shows everything (Drafts, Published, Archived)
             }
             if (!matchesFilter) continue
 
@@ -168,9 +132,6 @@ class AdminQuizzesActivity : AppCompatActivity() {
         binding.tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
     }
 
-    // ==================================================================
-    // QUIZ ACTIONS
-    // ==================================================================
     private fun showQuizActions(quiz: Quiz) {
         val actions = arrayOf("View Quiz Stats", "Delete Quiz", "Cancel")
         MaterialAlertDialogBuilder(this)
@@ -184,7 +145,7 @@ class AdminQuizzesActivity : AppCompatActivity() {
                         startActivity(intent)
                     }
                     1 -> confirmDelete(quiz)
-                    else -> { /* cancel */ }
+                    else -> { }
                 }
             }
             .show()
@@ -193,10 +154,7 @@ class AdminQuizzesActivity : AppCompatActivity() {
     private fun confirmDelete(quiz: Quiz) {
         MaterialAlertDialogBuilder(this)
             .setTitle("Delete Quiz?")
-            .setMessage(
-                "This will permanently remove \"${quiz.title}\" and all its questions, " +
-                        "attempts, cheat logs, and related results. This cannot be undone."
-            )
+            .setMessage("This will permanently remove \"${quiz.title}\" and all its related data.")
             .setPositiveButton("Delete") { _, _ -> deleteQuiz(quiz) }
             .setNegativeButton("Cancel", null)
             .show()
@@ -204,10 +162,7 @@ class AdminQuizzesActivity : AppCompatActivity() {
 
     private fun deleteQuiz(quiz: Quiz) {
         val quizId = quiz.quizId
-        if (quizId.isEmpty()) {
-            Toast.makeText(this, "Invalid quiz ID", Toast.LENGTH_SHORT).show()
-            return
-        }
+        if (quizId.isEmpty()) return
 
         Toast.makeText(this, "Deleting quiz…", Toast.LENGTH_SHORT).show()
 
@@ -235,7 +190,6 @@ class AdminQuizzesActivity : AppCompatActivity() {
                 snapshot.documents.forEach { batch.delete(it.reference) }
                 batch.commit().addOnSuccessListener { deleteCollection(path) }
             }
-            .addOnFailureListener { e -> Log.e(TAG, "deleteCollection $path failed", e) }
     }
 
     private fun deleteResultsForQuiz(quizId: String) {
@@ -246,7 +200,6 @@ class AdminQuizzesActivity : AppCompatActivity() {
                 snapshot.documents.forEach { batch.delete(it.reference) }
                 batch.commit().addOnSuccessListener { deleteResultsForQuiz(quizId) }
             }
-            .addOnFailureListener { e -> Log.e(TAG, "deleteResults failed", e) }
     }
 
     override fun onSupportNavigateUp(): Boolean {
@@ -254,9 +207,6 @@ class AdminQuizzesActivity : AppCompatActivity() {
         return true
     }
 
-    // ==================================================================
-    // ADAPTER
-    // ==================================================================
     inner class QuizzesAdapter(
         private val items: List<Quiz>,
         private val onClick: (Quiz) -> Unit
@@ -265,9 +215,7 @@ class AdminQuizzesActivity : AppCompatActivity() {
         inner class VH(val b: ItemAdminQuizBinding) : RecyclerView.ViewHolder(b.root)
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-            val b = ItemAdminQuizBinding.inflate(
-                LayoutInflater.from(parent.context), parent, false
-            )
+            val b = ItemAdminQuizBinding.inflate(LayoutInflater.from(parent.context), parent, false)
             return VH(b)
         }
 
@@ -278,43 +226,28 @@ class AdminQuizzesActivity : AppCompatActivity() {
             b.tvTitle.text = quiz.title.ifBlank { "(untitled)" }
 
             val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-            val created = if (quiz.createdAt > 0)
-                dateFormat.format(Date(quiz.createdAt)) else "—"
+            val created = if (quiz.createdAt > 0) dateFormat.format(Date(quiz.createdAt)) else "—"
+            b.tvMeta.text = "${quiz.totalQuestions} questions  •  ${quiz.visibility.replaceFirstChar { it.uppercase() }}  •  $created"
+            b.tvOwner.text = if (quiz.creatorId.isNotBlank()) "Owner: ${quiz.creatorId.take(12)}…" else "Owner: unknown"
 
-            b.tvMeta.text = "${quiz.totalQuestions} questions  •  " +
-                    "${quiz.visibility.replaceFirstChar { it.uppercase() }}  •  $created"
+            // FIXED: If it has a quizCode, it is fully published and joinable
+            val isActuallyPublished = quiz.status.equals("PUBLISHED", ignoreCase = true) || quiz.quizCode.isNotEmpty()
 
-            b.tvOwner.text = if (quiz.creatorId.isNotBlank())
-                "Owner: ${quiz.creatorId.take(12)}…" else "Owner: unknown"
-
-            when (quiz.status.uppercase()) {
-                "PUBLISHED" -> {
+            when {
+                isActuallyPublished -> {
                     b.chipStatus.text = "Published"
                     b.chipStatus.setChipBackgroundColorResource(R.color.success)
-                    b.chipStatus.setTextColor(
-                        ContextCompat.getColor(holder.itemView.context, android.R.color.white)
-                    )
+                    b.chipStatus.setTextColor(ContextCompat.getColor(holder.itemView.context, android.R.color.white))
                 }
-                "DRAFT" -> {
-                    b.chipStatus.text = "Draft"
-                    b.chipStatus.setChipBackgroundColorResource(R.color.surface_variant)
-                    b.chipStatus.setTextColor(
-                        ContextCompat.getColor(holder.itemView.context, R.color.text_secondary)
-                    )
-                }
-                "ARCHIVED" -> {
+                quiz.status.equals("ARCHIVED", ignoreCase = true) -> {
                     b.chipStatus.text = "Archived"
                     b.chipStatus.setChipBackgroundColorResource(R.color.warning)
-                    b.chipStatus.setTextColor(
-                        ContextCompat.getColor(holder.itemView.context, android.R.color.white)
-                    )
+                    b.chipStatus.setTextColor(ContextCompat.getColor(holder.itemView.context, android.R.color.white))
                 }
                 else -> {
-                    b.chipStatus.text = quiz.status.ifBlank { "—" }
+                    b.chipStatus.text = "Draft"
                     b.chipStatus.setChipBackgroundColorResource(R.color.surface_variant)
-                    b.chipStatus.setTextColor(
-                        ContextCompat.getColor(holder.itemView.context, R.color.text_secondary)
-                    )
+                    b.chipStatus.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.text_secondary))
                 }
             }
 

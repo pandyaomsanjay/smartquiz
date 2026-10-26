@@ -7,7 +7,6 @@ import android.os.Looper
 import android.view.animation.AnimationUtils
 import androidx.appcompat.app.AppCompatActivity
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import com.smartquiz.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
@@ -37,7 +36,6 @@ class MainActivity : AppCompatActivity() {
     private fun checkSession() {
         val currentUser = auth.currentUser
 
-        // Add a short delay for the splash animation to play
         Handler(Looper.getMainLooper()).postDelayed({
             if (isNavigated || isFinishing) return@postDelayed
             isNavigated = true
@@ -46,25 +44,9 @@ class MainActivity : AppCompatActivity() {
                 // Not logged in -> Route to Login
                 navigateTo(LoginActivity::class.java)
             } else {
-                // Logged in -> Check role from Firestore to route correctly
-                FirebaseFirestore.getInstance().collection("users").document(currentUser.uid).get()
-                    .addOnSuccessListener { doc ->
-                        if (doc.exists()) {
-                            val role = doc.getString("role")?.lowercase() ?: "user"
-                            if (role == "admin" || role == "super_admin") {
-                                navigateTo(AdminPanelActivity::class.java)
-                            } else {
-                                navigateTo(HomeDashboardActivity::class.java)
-                            }
-                        } else {
-                            // Fallback if Auth exists but Firestore doc is missing
-                            navigateTo(HomeDashboardActivity::class.java)
-                        }
-                    }
-                    .addOnFailureListener {
-                        // Network failure fallback -> assume normal user
-                        navigateTo(HomeDashboardActivity::class.java)
-                    }
+                // Logged in (Admin or User) -> Route to Normal Dashboard
+                // HomeDashboardActivity will show the Admin button if the user is an admin.
+                navigateTo(HomeDashboardActivity::class.java)
             }
         }, 1500) // 1.5 second splash delay
     }

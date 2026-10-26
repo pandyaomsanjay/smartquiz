@@ -519,7 +519,7 @@ service cloud.firestore {
   function isAdmin() {
     return request.auth != null &&
       get(/databases/$(database)/documents/users/$(request.auth.uid))
-        .data.role == "admin";
+        .data.role in ["admin", "super_admin"];
   }
 
   match /databases/{database}/documents {
@@ -618,6 +618,7 @@ service cloud.firestore {
         allow write: if request.auth != null;
         allow read: if request.auth != null && (
           isAdmin() ||
+          resource.data.creatorId == request.auth.uid ||
           (
             resource.data.quizId is string &&
             resource.data.quizId != "" &&

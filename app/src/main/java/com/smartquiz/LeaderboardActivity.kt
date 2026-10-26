@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -12,8 +13,8 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
 import com.smartquiz.databinding.ActivityLeaderboardBinding
-import com.smartquiz.models.JoinedQuiz
 
 class LeaderboardActivity : AppCompatActivity() {
 
@@ -23,6 +24,7 @@ class LeaderboardActivity : AppCompatActivity() {
     private val quizItems = mutableListOf<LeaderboardQuizItem>()
     private lateinit var adapter: LeaderboardQuizAdapter
     private var currentFilter = "All"
+    private val TAG = "LeaderboardActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,35 +75,65 @@ class LeaderboardActivity : AppCompatActivity() {
         binding.layoutEmpty.visibility = View.GONE
         binding.rvMyQuizzes.visibility = View.GONE
 
-        db.collection("users").document(userId)
+        // 1. Fetch quizzes created by the user
+        val createdTask = db.collection("quizzes")
+            .whereEqualTo("creatorId", userId)
+            .get()
+
+        // 2. Fetch quizzes joined by the user
+        val joinedTask = db.collection("users").document(userId)
             .collection("joinedQuizzes")
             .get()
-            .addOnSuccessListener { joinedSnap ->
-                val joinedList = joinedSnap.mapNotNull { it.toObject(JoinedQuiz::class.java) }
-                    .filter { it.status != "Expired" }
-                if (joinedList.isEmpty()) {
+
+        Tasks.whenAllComplete(createdTask, joinedTask)
+            .addOnSuccessListener { tasks ->
+                val createdDocs = if (createdTask.isSuccessful) createdTask.result?.documents ?: emptyList() else emptyList()
+                val joinedDocs = if (joinedTask.isSuccessful) joinedTask.result?.documents ?: emptyList() else emptyList()
+
+                if (!createdTask.isSuccessful) Log.e(TAG, "Failed to load created quizzes", createdTask.exception)
+                if (!joinedTask.isSuccessful) Log.e(TAG, "Failed to load joined quizzes", joinedTask.exception)
+
+                // Use a Set to automatically remove duplicates
+                val uniqueQuizIds = mutableSetOf<String>()
+
+                createdDocs.forEach { uniqueQuizIds.add(it.id) }
+                joinedDocs.forEach { doc ->
+                    val qid = doc.getString("quizId") ?: doc.id
+                    uniqueQuizIds.add(qid)
+                }
+
+                Log.d(TAG, "Total unique quizzes found: ${uniqueQuizIds.size}")
+
+                if (uniqueQuizIds.isEmpty()) {
                     showEmpty()
                     return@addOnSuccessListener
                 }
-                fetchQuizDetails(joinedList)
-            }
-            .addOnFailureListener {
-                showError()
+
+                fetchQuizDetails(uniqueQuizIds.toList())
             }
     }
 
-    private fun fetchQuizDetails(joinedList: List<JoinedQuiz>) {
-        val tasks = joinedList.map { joined ->
-            val quizRef = db.collection("quizzes").document(joined.quizId)
-
+    private fun fetchQuizDetails(quizIds: List<String>) {
+        val tasks = quizIds.map { quizId ->
+            val quizRef = db.collection("quizzes").document(quizId)
             val quizDocTask = quizRef.get()
             val attemptsTask = quizRef.collection("attempts").get()
 
-            Tasks.whenAllSuccess<Any>(quizDocTask, attemptsTask)
+            // Use whenAllComplete instead of whenAllSuccess so one failure doesn't break the whole list
+            Tasks.whenAllComplete(quizDocTask, attemptsTask)
                 .continueWith { _ ->
+                    if (!quizDocTask.isSuccessful || !quizDocTask.result.exists()) {
+                        Log.e(TAG, "Failed to load quiz doc for $quizId", quizDocTask.exception)
+                        return@continueWith null
+                    }
+
                     val quizDoc = quizDocTask.result
-                    val attempts = attemptsTask.result?.documents ?: emptyList()
-                    val showScore = quizDoc?.getBoolean("showScoreAfterSubmission") ?: true
+                    val title = quizDoc.getString("title") ?: "Unknown Quiz"
+                    val quizCode = quizDoc.getString("quizCode") ?: ""
+                    val showScore = quizDoc.getBoolean("showScoreAfterSubmission") ?: true
+
+                    // If attempts fail to load (e.g. permission denied), just show 0 attempts for this quiz
+                    val attempts = if (attemptsTask.isSuccessful) attemptsTask.result?.documents ?: emptyList() else emptyList()
 
                     val userAttempt = attempts.find { it.id == auth.currentUser?.uid }
                     val status = userAttempt?.getString("status") ?: "In Progress"
@@ -111,17 +143,18 @@ class LeaderboardActivity : AppCompatActivity() {
                     var userRank = 0
                     val totalParticipants = attempts.size
 
-                    if (showScore) {
-                        val sorted = attempts.sortedWith(compareByDescending<DocumentSnapshot> { it.getDouble("score") }
-                            .thenBy { it.getLong("submitTime") })
+                    if (showScore && attempts.isNotEmpty()) {
+                        val sorted = attempts.sortedWith(
+                            compareByDescending<DocumentSnapshot> { it.getDouble("score") }
+                                .thenBy { it.getLong("submitTime") }
+                        )
+
                         var rank = 1
                         var prevScore: Double? = null
                         var position = 1
                         for (doc in sorted) {
                             val score = doc.getDouble("score") ?: 0.0
-                            if (prevScore != null && score != prevScore) {
-                                rank = position
-                            }
+                            if (prevScore != null && score != prevScore) rank = position
                             if (doc.id == auth.currentUser?.uid) {
                                 userRank = rank
                                 break
@@ -132,9 +165,9 @@ class LeaderboardActivity : AppCompatActivity() {
                     }
 
                     LeaderboardQuizItem(
-                        quizId = joined.quizId,
-                        title = joined.quizTitle,
-                        quizCode = joined.quizCode,
+                        quizId = quizId,
+                        title = title,
+                        quizCode = quizCode,
                         userScore = userScore,
                         totalScore = totalScore,
                         userRank = userRank,
@@ -149,9 +182,10 @@ class LeaderboardActivity : AppCompatActivity() {
             .addOnCompleteListener {
                 val items = tasks.mapNotNull { if (it.isSuccessful) it.result else null }
                 val filtered = if (currentFilter == "All") items else items.filter { it.status == currentFilter }
+
                 quizItems.clear()
-                // Sort by rank if visible, else by title
                 quizItems.addAll(filtered.sortedByDescending { if (it.showScore) it.userRank else 0 })
+
                 binding.progressBar.visibility = View.GONE
                 if (quizItems.isEmpty()) {
                     showEmpty()
@@ -159,9 +193,6 @@ class LeaderboardActivity : AppCompatActivity() {
                     binding.rvMyQuizzes.visibility = View.VISIBLE
                     adapter.notifyDataSetChanged()
                 }
-            }
-            .addOnFailureListener {
-                showError()
             }
     }
 
@@ -179,13 +210,8 @@ class LeaderboardActivity : AppCompatActivity() {
         binding.rvMyQuizzes.visibility = View.GONE
     }
 
-    private fun showError() {
-        binding.progressBar.visibility = View.GONE
-        Toast.makeText(this, "Failed to load leaderboard", Toast.LENGTH_SHORT).show()
-    }
-
     override fun onSupportNavigateUp(): Boolean {
-        onBackPressed()
+        onBackPressedDispatcher.onBackPressed()
         return true
     }
 }

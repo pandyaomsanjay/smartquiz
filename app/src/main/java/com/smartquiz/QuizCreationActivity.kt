@@ -134,9 +134,6 @@ class QuizCreationActivity : AppCompatActivity() {
         updateQuestionsCount()
 
         // ---------- Consume imported questions ----------
-        // If the caller (BulkImportActivity) passed a list of questions via
-        // Intent extras, populate the list and refresh the preview. This is
-        // only applied when we're NOT editing an existing draft.
         @Suppress("DEPRECATION")
         val imported = intent.getSerializableExtra("importedQuestions") as? ArrayList<Question>
         if (!isEditingDraft && !imported.isNullOrEmpty()) {
@@ -373,16 +370,38 @@ class QuizCreationActivity : AppCompatActivity() {
             return
         }
 
-        val newQuiz = quiz.copy(
-            creatorId = userId,
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis()
+        // Ensure participantCount is initialized for brand new drafts
+        val draftMap = mutableMapOf<String, Any>(
+            "title" to quiz.title,
+            "description" to quiz.description,
+            "visibility" to quiz.visibility,
+            "startTime" to quiz.startTime,
+            "deadline" to quiz.deadline,
+            "negativeMarking" to quiz.negativeMarking,
+            "negativeMarkingValue" to quiz.negativeMarkingValue,
+            "hasImageQuestions" to quiz.hasImageQuestions,
+            "hasAudioQuestions" to quiz.hasAudioQuestions,
+            "hasVideoQuestions" to quiz.hasVideoQuestions,
+            "timerType" to quiz.timerType,
+            "totalTimeSeconds" to quiz.totalTimeSeconds,
+            "timePerQuestionSeconds" to quiz.timePerQuestionSeconds,
+            "randomizationMode" to quiz.randomizationMode,
+            "showScoreAfterSubmission" to quiz.showScoreAfterSubmission,
+            "status" to "DRAFT",
+            "updatedAt" to System.currentTimeMillis(),
+            "createdAt" to System.currentTimeMillis(),
+            "totalQuestions" to questionsList.sumOf { it.questionCount() },
+            "configuredQuestionCount" to (binding.etConfiguredQuestionCount.text.toString().toIntOrNull() ?: 0),
+            "creatorId" to userId,
+            "archived" to false,
+            "participantCount" to 0 // <--- FIX: Initialize participant count for new drafts
         )
-        db.collection("quizzes").add(newQuiz)
+
+        db.collection("quizzes").add(draftMap)
             .addOnSuccessListener { docRef ->
                 draftQuizId = docRef.id
                 isEditingDraft = true
-                originalCreatedAt = newQuiz.createdAt
+                originalCreatedAt = System.currentTimeMillis()
                 saveQuestionsToFirestore(docRef.id) {
                     Toast.makeText(this, "Quiz saved as draft successfully", Toast.LENGTH_SHORT).show()
                     goToDraftQuizzes()
@@ -410,6 +429,11 @@ class QuizCreationActivity : AppCompatActivity() {
         }
 
         val updateMap = buildUpdateMap(quiz, userId, status = "PUBLISHED")
+
+        // FIX: If this is a newly created quiz, initialize participantCount to 0
+        if (!isEditingDraft) {
+            updateMap["participantCount"] = 0
+        }
 
         val docRef = if (isEditingDraft && draftQuizId != null) {
             db.collection("quizzes").document(draftQuizId!!)
@@ -579,18 +603,7 @@ class QuizCreationActivity : AppCompatActivity() {
             }
     }
 
-    /**
-     * Writes every question (normal + scenario) into Firestore using
-     * batched commits. Firestore allows a maximum of 500 operations per
-     * batch, so we chunk into groups of 450 to leave headroom.
-     *
-     * For a 100-question quiz this produces ~4 batches and shows a live
-     * progress dialog: "37 / 100 ... 100 / 100".
-     */
     private fun writeQuestions(quizId: String, onComplete: () -> Unit) {
-        // -------------------------------------------------------------
-        // Represent every write as a generic (ref → data) operation.
-        // -------------------------------------------------------------
         data class Op(
             val ref: com.google.firebase.firestore.DocumentReference,
             val data: Map<String, Any>
@@ -605,7 +618,6 @@ class QuizCreationActivity : AppCompatActivity() {
                 .collection("questions_private").document(publicRef.id)
 
             if (q.isScenario) {
-                // ---------- Scenario (public) ----------
                 val publicSubs = q.subQuestions.map { sub ->
                     mapOf(
                         "questionId" to sub.questionId,
@@ -625,7 +637,6 @@ class QuizCreationActivity : AppCompatActivity() {
                     "points" to q.totalPoints()
                 )))
 
-                // ---------- Scenario (private answers) ----------
                 val privateAnswers = q.subQuestions.associate { sub ->
                     sub.questionId to when (sub.questionType) {
                         "radio" -> mapOf("correctAnswerIndex" to sub.correctAnswerIndex)
@@ -635,7 +646,6 @@ class QuizCreationActivity : AppCompatActivity() {
                 }
                 ops.add(Op(privateRef, mapOf("subAnswers" to privateAnswers)))
             } else {
-                // ---------- Normal question (public) ----------
                 ops.add(Op(publicRef, mapOf(
                     "text" to q.text,
                     "options" to q.options,
@@ -646,7 +656,6 @@ class QuizCreationActivity : AppCompatActivity() {
                     "videoUrl" to q.videoUrl
                 )))
 
-                // ---------- Normal question (private) ----------
                 val privateData = when (q.questionType) {
                     "radio" -> mapOf("correctAnswerIndex" to q.correctAnswerIndex)
                     "checkbox" -> mapOf("correctAnswerIndices" to q.correctAnswerIndices)
@@ -657,13 +666,8 @@ class QuizCreationActivity : AppCompatActivity() {
             }
         }
 
-        // -------------------------------------------------------------
-        // Split into safe batches and commit sequentially.
-        // -------------------------------------------------------------
         val batches = ops.chunked(450)
 
-        // Show a progress dialog only when we actually need multiple batches,
-        // so small quizzes stay fast and silent.
         val progressDialog: AlertDialog? =
             if (batches.size > 1) {
                 AlertDialog.Builder(this)
@@ -686,9 +690,6 @@ class QuizCreationActivity : AppCompatActivity() {
 
             batch.commit()
                 .addOnSuccessListener {
-                    // Each batch holds up to 450 ops; 2 ops per question, so
-                    // a full batch writes ~225 questions. We report question
-                    // progress as approximately how many we've written.
                     val writtenOps = (batchIndex + 1) * 450
                     val approxQuestions =
                         (writtenOps / 2).coerceAtMost(questionsList.size)

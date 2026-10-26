@@ -69,7 +69,6 @@ class LoginActivity : AppCompatActivity() {
                     if (task.isSuccessful) {
                         checkUserStatusAndRoute()
                     } else {
-                        // Use AuthHelper for clean error messages
                         Toast.makeText(this, AuthHelper.getErrorMessage(task.exception), Toast.LENGTH_LONG).show()
                     }
                 }
@@ -113,15 +112,16 @@ class LoginActivity : AppCompatActivity() {
                     Toast.makeText(this, "Your account has been banned.", Toast.LENGTH_LONG).show()
                     auth.signOut()
                 } else {
-                    navigateToTarget(doc.getString("role")?.lowercase() ?: "user")
+                    // FIX: Route to HomeDashboard instead of AdminPanel
+                    navigateToTarget()
                 }
             }
-            .addOnFailureListener { navigateToTarget("user") }
+            .addOnFailureListener { navigateToTarget() }
     }
 
-    private fun navigateToTarget(role: String) {
-        val target = if (role == "admin" || role == "super_admin") AdminPanelActivity::class.java else HomeDashboardActivity::class.java
-        val intent = Intent(this, target)
+    private fun navigateToTarget() {
+        // Always go to Home. The Home screen will show the Admin Panel button if the user is an admin.
+        val intent = Intent(this, HomeDashboardActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
@@ -154,15 +154,11 @@ class LoginActivity : AppCompatActivity() {
                             return@addOnSuccessListener
                         }
 
-                        // =========================================================
-                        // FIX: PREVENT AUTO-REGISTRATION FROM LOGIN PAGE
-                        // =========================================================
                         if (!doc.exists()) {
                             // Sign out immediately so they aren't left in a half-authenticated state
                             auth.signOut()
                             googleSignInClient.signOut()
 
-                            // Show clear dialog requiring explicit registration
                             MaterialAlertDialogBuilder(this)
                                 .setTitle("Account Not Found")
                                 .setMessage("No SmartQuiz account found for this Google account. Please create an account first.")
@@ -173,12 +169,12 @@ class LoginActivity : AppCompatActivity() {
                                 .setCancelable(false)
                                 .show()
                         } else {
-                            // User exists -> Check password provider
                             if (!AuthHelper.hasPasswordProvider(user)) {
                                 startActivity(Intent(this, SetPasswordActivity::class.java))
                                 safeFinish()
                             } else {
-                                navigateToTarget(doc.getString("role")?.lowercase() ?: "user")
+                                // FIX: Route to HomeDashboard
+                                navigateToTarget()
                             }
                         }
                     }
