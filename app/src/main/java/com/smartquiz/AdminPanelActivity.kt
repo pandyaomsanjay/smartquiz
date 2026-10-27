@@ -90,7 +90,6 @@ class AdminPanelActivity : AppCompatActivity() {
     // ==================================================================
     private fun loadStatistics() {
         binding.progressBar.visibility = View.VISIBLE
-        val uid = auth.currentUser?.uid ?: return
 
         // 1. Total Users
         db.collection("users").count().get(AggregateSource.SERVER)
@@ -102,7 +101,7 @@ class AdminPanelActivity : AppCompatActivity() {
                 binding.tvStatUsers.text = "—"
             }
 
-        // 2. Total Quizzes (Fetches ALL quizzes globally)
+        // 2. Total Quizzes
         db.collection("quizzes").count().get(AggregateSource.SERVER)
             .addOnSuccessListener { snap ->
                 binding.tvStatQuizzes.text = snap.count.toString()
@@ -114,7 +113,7 @@ class AdminPanelActivity : AppCompatActivity() {
                 binding.progressBar.visibility = View.GONE
             }
 
-        // 3. Public Quizzes (Fetches all public quizzes globally)
+        // 3. Public Quizzes
         db.collection("quizzes").whereEqualTo("visibility", "public").count().get(AggregateSource.SERVER)
             .addOnSuccessListener { snap ->
                 binding.tvStatActiveQuizzes.text = snap.count.toString()
@@ -124,73 +123,14 @@ class AdminPanelActivity : AppCompatActivity() {
                 binding.tvStatActiveQuizzes.text = "—"
             }
 
-        // 4. Cheat Alerts
-        loadCheatAlertsCount(uid)
-    }
-
-    private fun loadCheatAlertsCount(uid: String) {
-        // Try global collectionGroup query first (for Admins)
-        db.collectionGroup("cheat_logs")
-            .count()
-            .get(AggregateSource.SERVER)
+        // 4. Total Announcements Published (Replaced Cheat Alerts)
+        db.collection("announcements").count().get(AggregateSource.SERVER)
             .addOnSuccessListener { snap ->
-                binding.tvStatCheatAlerts.text = snap.count.toString()
-            }
-            .addOnFailureListener { e1 ->
-                Log.w(TAG, "Global cheat_logs count unavailable (${e1.message}), trying filtered by creatorId")
-                // Fallback 1: Filtered collectionGroup query by creatorId
-                db.collectionGroup("cheat_logs")
-                    .whereEqualTo("creatorId", uid)
-                    .count()
-                    .get(AggregateSource.SERVER)
-                    .addOnSuccessListener { snap ->
-                        binding.tvStatCheatAlerts.text = snap.count.toString()
-                    }
-                    .addOnFailureListener { e2 ->
-                        Log.w(TAG, "Filtered cheat_logs count failed (${e2.message}), trying per-quiz fallback")
-                        // Fallback 2: Direct subcollection count per quiz
-                        countCheatLogsPerQuiz(uid)
-                    }
-            }
-    }
-
-    private fun countCheatLogsPerQuiz(uid: String) {
-        db.collection("quizzes")
-            .whereEqualTo("creatorId", uid)
-            .get()
-            .addOnSuccessListener { quizDocs ->
-                if (quizDocs.isEmpty) {
-                    binding.tvStatCheatAlerts.text = "0"
-                    return@addOnSuccessListener
-                }
-
-                var totalCount = 0L
-                var pending = quizDocs.size()
-
-                for (doc in quizDocs) {
-                    db.collection("quizzes")
-                        .document(doc.id)
-                        .collection("cheat_logs")
-                        .count()
-                        .get(AggregateSource.SERVER)
-                        .addOnSuccessListener { snap ->
-                            totalCount += snap.count
-                            pending--
-                            if (pending == 0) {
-                                binding.tvStatCheatAlerts.text = totalCount.toString()
-                            }
-                        }
-                        .addOnFailureListener {
-                            pending--
-                            if (pending == 0) {
-                                binding.tvStatCheatAlerts.text = totalCount.toString()
-                            }
-                        }
-                }
+                binding.tvStatAnnouncements.text = snap.count.toString()
             }
             .addOnFailureListener { e ->
-                Log.w(TAG, "Per-quiz cheat_logs count fallback failed: ${e.message}")
-                binding.tvStatCheatAlerts.text = "0"
+                Log.e(TAG, "announcements count failed", e)
+                binding.tvStatAnnouncements.text = "—"
             }
     }
 

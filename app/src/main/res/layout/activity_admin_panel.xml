@@ -7,9 +7,7 @@
     android:fitsSystemWindows="true"
     android:background="@color/background">
 
-    <!-- ========================================================= -->
-    <!-- TOP APP BAR                                                -->
-    <!-- ========================================================= -->
+    <!-- TOP APP BAR -->
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -29,9 +27,7 @@
             app:subtitleTextColor="@color/white_alpha_60" />
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- ========================================================= -->
-    <!-- SCROLLABLE CONTENT                                         -->
-    <!-- ========================================================= -->
+    <!-- SCROLLABLE CONTENT -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -44,9 +40,7 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- ================================================= -->
-            <!-- ADMIN IDENTITY CARD                                -->
-            <!-- ================================================= -->
+            <!-- ADMIN IDENTITY CARD -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -111,9 +105,7 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- ================================================= -->
-            <!-- OVERVIEW STATISTICS (2x2 grid)                     -->
-            <!-- ================================================= -->
+            <!-- OVERVIEW STATISTICS -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -207,14 +199,14 @@
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
 
-            <!-- Row 2: Active Quizzes + Cheat Alerts -->
+            <!-- Row 2: Public Quizzes + Announcements Published -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:layout_marginBottom="24dp">
 
-                <!-- Active Public Quizzes -->
+                <!-- Public Quizzes -->
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
@@ -252,7 +244,7 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Cheat Alerts -->
+                <!-- Announcements (Replaced Cheat Alerts) -->
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
@@ -269,10 +261,10 @@
                         <ImageView
                             android:layout_width="26dp"
                             android:layout_height="26dp"
-                            android:src="@drawable/ic_warning"
-                            app:tint="@color/error" />
+                            android:src="@drawable/ic_announcement"
+                            app:tint="@color/secondary" />
                         <TextView
-                            android:id="@+id/tvStatCheatAlerts"
+                            android:id="@+id/tvStatAnnouncements"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="—"
@@ -283,7 +275,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Cheat Alerts"
+                            android:text="Announcements"
                             android:textSize="12sp"
                             android:textColor="@color/text_secondary"
                             android:layout_marginTop="2dp" />
@@ -291,9 +283,7 @@
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
 
-            <!-- ================================================= -->
-            <!-- QUICK ACTIONS                                      -->
-            <!-- ================================================= -->
+            <!-- QUICK ACTIONS -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -451,9 +441,7 @@
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
 
-            <!-- ================================================= -->
-            <!-- RECENT ACTIVITY                                    -->
-            <!-- ================================================= -->
+            <!-- RECENT ACTIVITY -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -479,7 +467,6 @@
                     android:minHeight="80dp" />
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Loading indicator -->
             <com.google.android.material.progressindicator.CircularProgressIndicator
                 android:id="@+id/progressBar"
                 android:layout_width="wrap_content"
