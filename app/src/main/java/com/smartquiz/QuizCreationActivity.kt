@@ -430,9 +430,10 @@ class QuizCreationActivity : AppCompatActivity() {
 
         val updateMap = buildUpdateMap(quiz, userId, status = "PUBLISHED")
 
-        // FIX: If this is a newly created quiz, initialize participantCount to 0
+        // Initialize participantCount AND createdAt ONLY if this is a new quiz
         if (!isEditingDraft) {
             updateMap["participantCount"] = 0
+            updateMap["createdAt"] = System.currentTimeMillis() // <--- THIS FIXES THE LIST
         }
 
         val docRef = if (isEditingDraft && draftQuizId != null) {

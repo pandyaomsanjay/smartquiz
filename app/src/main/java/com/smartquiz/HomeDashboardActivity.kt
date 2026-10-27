@@ -1,20 +1,25 @@
 package com.smartquiz
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.bumptech.glide.Glide
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Source
+import com.google.firebase.messaging.FirebaseMessaging
 import com.smartquiz.databinding.ActivityHomeDashboardBinding
 
 class HomeDashboardActivity : AppCompatActivity() {
@@ -31,8 +36,6 @@ class HomeDashboardActivity : AppCompatActivity() {
     private var joinedQuizzesListener: ListenerRegistration? = null
 
     // Live listener for the current user's profile data.
-    // Any change to users/{uid} (name, avatar, role, streak, …)
-    // instantly updates the Home screen.
     private var userDataListener: ListenerRegistration? = null
 
     private var isFirstResume = true
@@ -47,7 +50,11 @@ class HomeDashboardActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
 
-        // Attach the live user-data listener (updates name / avatar / role / streak)
+        // ---------- NEW: Notification Setup ----------
+        requestNotificationPermission()
+        uploadFcmToken()
+
+        // Attach the live user-data listener
         observeUserData()
 
         // ---------- Quick action cards ----------
@@ -103,11 +110,6 @@ class HomeDashboardActivity : AppCompatActivity() {
         setupPublicQuizSection()
     }
 
-    /**
-     * Reload public quizzes every time Home comes back into the foreground
-     * with a fresh server fetch (Source.SERVER) so participant counts and
-     * join statuses are always up to date.
-     */
     override fun onResume() {
         super.onResume()
         if (isFirstResume) {
@@ -131,6 +133,38 @@ class HomeDashboardActivity : AppCompatActivity() {
     }
 
     // ==================================================================
+    // NEW: NOTIFICATION PERMISSION & FCM TOKEN
+    // ==================================================================
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13+
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    101
+                )
+            }
+        }
+    }
+
+    private fun uploadFcmToken() {
+        val uid = auth.currentUser?.uid ?: return
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                Log.e("HomeDashboard", "Fetching FCM registration token failed", task.exception)
+                return@addOnCompleteListener
+            }
+            // Get new FCM registration token
+            val token = task.result
+            // Save token to the user's Firestore document
+            db.collection("users").document(uid).update("fcmToken", token)
+                .addOnSuccessListener { Log.d("HomeDashboard", "FCM Token saved to Firestore") }
+                .addOnFailureListener { e -> Log.e("HomeDashboard", "Failed to save FCM Token", e) }
+        }
+    }
+
+    // ==================================================================
     // USER DATA — live snapshot listener
     // ==================================================================
     private fun observeUserData() {
@@ -144,7 +178,6 @@ class HomeDashboardActivity : AppCompatActivity() {
             return
         }
 
-        // Detach any previous listener before attaching a new one
         userDataListener?.remove()
 
         userDataListener = db.collection("users").document(userId)
@@ -203,7 +236,6 @@ class HomeDashboardActivity : AppCompatActivity() {
     // "Quizzes Joined" — real-time count
     // ==================================================================
     private fun observeJoinedQuizCount(userId: String) {
-        // Don't detach + reattach if the listener is already active
         if (joinedQuizzesListener != null) return
 
         binding.tvTotalQuizzes.text = "—"
@@ -266,16 +298,6 @@ class HomeDashboardActivity : AppCompatActivity() {
         binding.rvPublicQuizzes.adapter = publicAdapter
     }
 
-    /**
-     * Loads public quizzes with a fresh server fetch (bypasses Firestore
-     * offline cache) so that:
-     *   • participant counts reflect the latest join
-     *   • lifecycle statuses are up to date
-     *   • the current user's join status is accurate
-     *
-     * Sorting is done client-side to avoid needing a composite index on
-     * `visibility + status + archived + deadline`.
-     */
     private fun loadPublicQuizzes() {
         binding.progressPublic.visibility = View.VISIBLE
         binding.tvEmptyPublicQuizzes.visibility = View.GONE
@@ -288,7 +310,7 @@ class HomeDashboardActivity : AppCompatActivity() {
             .whereEqualTo("status", "PUBLISHED")
             .whereEqualTo("archived", false)
             .limit(50)
-            .get(Source.SERVER)   // ← force fresh server data, bypass cache
+            .get(Source.SERVER)
             .addOnSuccessListener { docs ->
                 if (isFinishing) return@addOnSuccessListener
 
@@ -304,11 +326,9 @@ class HomeDashboardActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
-                // 1) Fetch creator names in parallel
                 val creatorIds = quizzes.map { it.creatorId }.distinct()
                 val creatorTasks = creatorIds.map { db.collection("users").document(it).get() }
 
-                // 2) Fetch current user's joined quizzes (fresh server data)
                 val joinedTask = if (currentUserId != null) {
                     db.collection("users").document(currentUserId)
                         .collection("joinedQuizzes")
@@ -323,7 +343,6 @@ class HomeDashboardActivity : AppCompatActivity() {
                     .addOnSuccessListener {
                         if (isFinishing) return@addOnSuccessListener
 
-                        // Creator name map
                         val nameMap = mutableMapOf<String, String>()
                         creatorTasks.forEach { t ->
                             if (t.isSuccessful) {
@@ -332,7 +351,6 @@ class HomeDashboardActivity : AppCompatActivity() {
                             }
                         }
 
-                        // User join status map
                         val joinedMap = mutableMapOf<String, String>()
                         if (joinedTask != null && joinedTask.isSuccessful) {
                             joinedTask.result.forEach { doc ->
@@ -358,7 +376,6 @@ class HomeDashboardActivity : AppCompatActivity() {
                     }
                     .addOnFailureListener {
                         if (isFinishing) return@addOnFailureListener
-                        // Fallback: show quizzes without resolved creator / join status
                         val items = quizzes.map { q ->
                             PublicQuizAdapter.PublicQuizItem(
                                 quiz = q,

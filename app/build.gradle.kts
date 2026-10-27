@@ -93,6 +93,11 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:21.6.0")
 
     // ================================================================
+    // Google Auth Library (for FCM HTTP v1 / Service Account OAuth)
+    // ================================================================
+    implementation("com.google.auth:google-auth-library-oauth2-http:1.23.0")
+
+    // ================================================================
     // Lifecycle
     // ================================================================
     implementation(libs.androidx.lifecycle.process)

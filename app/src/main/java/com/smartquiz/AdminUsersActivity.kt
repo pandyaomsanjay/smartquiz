@@ -47,7 +47,6 @@ class AdminUsersActivity : AppCompatActivity() {
         binding.rvUsers.layoutManager = LinearLayoutManager(this)
         binding.rvUsers.adapter = adapter
 
-        // Setup Search
         binding.etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -76,7 +75,6 @@ class AdminUsersActivity : AppCompatActivity() {
                         Log.e(TAG, "Failed to parse user ${doc.id}", e)
                     }
                 }
-                // Sort alphabetically
                 allUsers.sortBy { it.name.lowercase() }
                 applyFilter(binding.etSearch.text.toString())
             }
@@ -103,53 +101,83 @@ class AdminUsersActivity : AppCompatActivity() {
     }
 
     // ==================================================================
-    // USER ACTIONS (Ban, Block, Unban)
+    // USER ACTIONS MENU
     // ==================================================================
     private fun showUserActions(user: User) {
         val currentUid = auth.currentUser?.uid
         val isSelf = (user.uid == currentUid)
+        val isAdmin = user.role.lowercase() in listOf("admin", "super_admin")
 
         val actions = mutableListOf<String>()
 
+        // 1. Promote to Admin
+        if (!isAdmin && !isSelf) {
+            actions.add("Promote to Admin")
+        }
+
+        // 2. Ban / Unban
         if (user.isBanned) {
             actions.add("Unban User")
-        } else {
+        } else if (!isSelf) {
             actions.add("Ban User")
+        }
+
+        // 3. Block / Unblock
+        if (user.isBlocked) {
+            actions.add("Unblock User")
+        } else if (!isSelf) {
             actions.add("Block with Reason")
         }
+
         actions.add("Cancel")
 
         MaterialAlertDialogBuilder(this)
             .setTitle("${user.name}\n${user.email}")
             .setItems(actions.toTypedArray()) { _, which ->
-                val choice = actions[which]
-                when (choice) {
-                    "Ban User" -> {
-                        if (isSelf) {
-                            Toast.makeText(this, "You cannot ban your own account", Toast.LENGTH_LONG).show()
-                            return@setItems
-                        }
-                        updateUserStatus(user, banned = true, reason = null)
-                    }
-                    "Unban User" -> updateUserStatus(user, banned = false, reason = null)
-                    "Block with Reason" -> {
-                        if (isSelf) {
-                            Toast.makeText(this, "You cannot block your own account", Toast.LENGTH_LONG).show()
-                            return@setItems
-                        }
-                        promptBlockReason(user)
-                    }
-                    else -> { /* Cancel */ }
+                when (val choice = actions[which]) {
+                    "Promote to Admin" -> confirmPromote(user)
+                    "Ban User" -> confirmBan(user)
+                    "Block with Reason" -> promptBlockReason(user)
+                    "Unban User" -> confirmUnban(user)
+                    "Unblock User" -> confirmUnblock(user)
                 }
             }
             .show()
     }
 
+    // ==================================================================
+    // ACTION HANDLERS
+    // ==================================================================
+    private fun confirmPromote(user: User) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Promote to Admin?")
+            .setMessage("This user will receive administrator privileges and access to admin-only features.")
+            .setPositiveButton("Promote") { _, _ ->
+                updateUserFields(user.uid, mapOf("role" to "admin"), "Promoted to Admin")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmBan(user: User) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Ban User?")
+            .setMessage("This action will restrict the selected user's access.")
+            .setPositiveButton("Ban User") { _, _ ->
+                updateUserFields(
+                    user.uid,
+                    mapOf("isBanned" to true, "banReason" to "Banned by Admin"),
+                    "${user.name} has been banned"
+                )
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun promptBlockReason(user: User) {
         val input = EditText(this)
-        input.hint = "Reason for blocking (e.g., Cheating)"
+        input.hint = "Enter the reason for blocking"
 
-        // Wrap EditText in a FrameLayout to add padding to the dialog
         val container = FrameLayout(this).apply {
             setPadding(60, 20, 60, 0)
             addView(input)
@@ -158,39 +186,53 @@ class AdminUsersActivity : AppCompatActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle("Block ${user.name}")
             .setView(container)
-            .setPositiveButton("Block") { _, _ ->
+            .setPositiveButton("Block User") { _, _ ->
                 val reason = input.text.toString().trim()
                 if (reason.isEmpty()) {
-                    Toast.makeText(this, "Please enter a reason", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Reason is required", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                updateUserStatus(user, banned = true, reason = reason)
+                updateUserFields(
+                    user.uid,
+                    mapOf("isBlocked" to true, "blockReason" to reason),
+                    "${user.name} has been blocked"
+                )
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun updateUserStatus(user: User, banned: Boolean, reason: String?) {
-        val updates = mutableMapOf<String, Any>("isBanned" to banned)
+    private fun confirmUnban(user: User) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Unban User?")
+            .setMessage("This will restore access for ${user.name}.")
+            .setPositiveButton("Unban") { _, _ ->
+                updateUserFields(user.uid, mapOf("isBanned" to false), "${user.name} unbanned")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
-        if (reason != null) {
-            updates["banReason"] = reason
-        }
-        if (!banned) {
-            updates["banReason"] = "" // Clear reason on unban
-        }
+    private fun confirmUnblock(user: User) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Unblock User?")
+            .setMessage("This will remove the block restriction for ${user.name}.")
+            .setPositiveButton("Unblock") { _, _ ->
+                updateUserFields(user.uid, mapOf("isBlocked" to false), "${user.name} unblocked")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
-        db.collection("users").document(user.uid).update(updates)
+    private fun updateUserFields(uid: String, updates: Map<String, Any>, successMsg: String) {
+        db.collection("users").document(uid).update(updates)
             .addOnSuccessListener {
-                Toast.makeText(
-                    this,
-                    if (banned) "${user.name} blocked" else "${user.name} unblocked",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(this, successMsg, Toast.LENGTH_SHORT).show()
                 loadUsers() // Refresh list
             }
             .addOnFailureListener { e ->
-                Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                Log.e(TAG, "Update failed for $uid", e)
+                Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_LONG).show()
             }
     }
 
@@ -227,28 +269,27 @@ class AdminUsersActivity : AppCompatActivity() {
                 b.ivAvatar.setImageResource(R.drawable.ic_avatar_placeholder)
             }
 
-            // Set Role Chip
+            // Role Chip
             b.chipRole.text = user.role.uppercase()
-            when (user.role.lowercase()) {
-                "admin", "super_admin" -> {
-                    b.chipRole.setChipBackgroundColorResource(R.color.primary)
-                    b.chipRole.setTextColor(ContextCompat.getColor(
-                        holder.itemView.context, android.R.color.white))
-                }
-                else -> {
-                    b.chipRole.setChipBackgroundColorResource(R.color.surface_variant)
-                    b.chipRole.setTextColor(ContextCompat.getColor(
-                        holder.itemView.context, R.color.text_secondary))
-                }
+            if (user.role.lowercase() in listOf("admin", "super_admin")) {
+                b.chipRole.setChipBackgroundColorResource(R.color.primary)
+                b.chipRole.setTextColor(ContextCompat.getColor(holder.itemView.context, android.R.color.white))
+            } else {
+                b.chipRole.setChipBackgroundColorResource(R.color.surface_variant)
+                b.chipRole.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.text_secondary))
             }
 
-            // Set Blocked Status Chip
+            // Status Chip (Banned vs Blocked)
             if (user.isBanned) {
                 b.chipStatus.visibility = View.VISIBLE
-                b.chipStatus.text = "BLOCKED"
+                b.chipStatus.text = "BANNED"
                 b.chipStatus.setChipBackgroundColorResource(R.color.error)
-                b.chipStatus.setTextColor(ContextCompat.getColor(
-                    holder.itemView.context, android.R.color.white))
+                b.chipStatus.setTextColor(ContextCompat.getColor(holder.itemView.context, android.R.color.white))
+            } else if (user.isBlocked) {
+                b.chipStatus.visibility = View.VISIBLE
+                b.chipStatus.text = "BLOCKED"
+                b.chipStatus.setChipBackgroundColorResource(R.color.warning)
+                b.chipStatus.setTextColor(ContextCompat.getColor(holder.itemView.context, android.R.color.white))
             } else {
                 b.chipStatus.visibility = View.GONE
             }

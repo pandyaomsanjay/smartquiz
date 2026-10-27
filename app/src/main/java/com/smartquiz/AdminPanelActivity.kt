@@ -12,7 +12,7 @@ import com.bumptech.glide.Glide
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.AggregateSource
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.ListenerRegistration
 import com.smartquiz.databinding.ActivityAdminPanelBinding
 import java.text.SimpleDateFormat
 import java.util.*
@@ -23,6 +23,9 @@ class AdminPanelActivity : AppCompatActivity() {
     private lateinit var db: FirebaseFirestore
     private lateinit var auth: FirebaseAuth
     private val TAG = "AdminPanel"
+
+    // Listener to keep Recent Quizzes updated in real-time
+    private var recentQuizzesListener: ListenerRegistration? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +66,12 @@ class AdminPanelActivity : AppCompatActivity() {
                 Toast.makeText(this, "Error verifying permissions: ${e.message}", Toast.LENGTH_SHORT).show()
                 finish()
             }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Remove listener to prevent memory leaks
+        recentQuizzesListener?.remove()
     }
 
     // ==================================================================
@@ -123,7 +132,7 @@ class AdminPanelActivity : AppCompatActivity() {
                 binding.tvStatActiveQuizzes.text = "—"
             }
 
-        // 4. Total Announcements Published (Replaced Cheat Alerts)
+        // 4. Total Announcements Published
         db.collection("announcements").count().get(AggregateSource.SERVER)
             .addOnSuccessListener { snap ->
                 binding.tvStatAnnouncements.text = snap.count.toString()
@@ -135,30 +144,40 @@ class AdminPanelActivity : AppCompatActivity() {
     }
 
     // ==================================================================
-    // RECENT QUIZZES (Fetches latest from all users)
+    // RECENT QUIZZES (Fetches latest from all users in real-time)
     // ==================================================================
     private fun loadRecentQuizzes() {
-        db.collection("quizzes")
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(5)
-            .get()
-            .addOnSuccessListener { docs ->
-                val recentQuizzes = mutableListOf<Quiz>()
-                docs.forEach { doc ->
-                    try {
-                        doc.toObject(Quiz::class.java)?.let { q ->
-                            q.quizId = doc.id
-                            recentQuizzes.add(q)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "parse failed ${doc.id}", e)
-                    }
+        // Use addSnapshotListener so the list updates instantly if a new quiz is created
+        recentQuizzesListener = db.collection("quizzes")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "recent quizzes failed", error)
+                    renderRecentQuizzes(emptyList())
+                    return@addSnapshotListener
                 }
-                renderRecentQuizzes(recentQuizzes)
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "recent quizzes failed", e)
-                renderRecentQuizzes(emptyList())
+
+                if (snapshot != null) {
+                    val allQuizzes = mutableListOf<Quiz>()
+
+                    snapshot.documents.forEach { doc ->
+                        try {
+                            doc.toObject(Quiz::class.java)?.let { q ->
+                                q.quizId = doc.id
+                                allQuizzes.add(q)
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "parse failed ${doc.id}", e)
+                        }
+                    }
+
+                    // Sort locally by createdAt (descending) and take the top 5.
+                    // This prevents Firestore from dropping quizzes that are missing the 'createdAt' field.
+                    val recentQuizzes = allQuizzes
+                        .sortedByDescending { if (it.createdAt > 0) it.createdAt else 0L }
+                        .take(5)
+
+                    renderRecentQuizzes(recentQuizzes)
+                }
             }
     }
 
@@ -219,8 +238,8 @@ class AdminPanelActivity : AppCompatActivity() {
         binding.cardManageUsers.setOnClickListener {
             startActivity(Intent(this, AdminUsersActivity::class.java))
         }
-        binding.cardCheatLogs.setOnClickListener {
-            startActivity(Intent(this, AdminCheatLogsActivity::class.java))
+        binding.cardPastAnnouncements.setOnClickListener {
+            startActivity(Intent(this, PastAnnouncementsActivity::class.java))
         }
         binding.cardAnnouncements.setOnClickListener {
             startActivity(Intent(this, AdminAnnouncementsActivity::class.java))

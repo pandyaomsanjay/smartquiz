@@ -223,6 +223,10 @@
             android:name=".ChangePasswordActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".PastAnnouncementsActivity"
+            android:label="Past Announcements"
+            android:parentActivityName=".AdminPanelActivity" />
     </application>
 
 </manifest>

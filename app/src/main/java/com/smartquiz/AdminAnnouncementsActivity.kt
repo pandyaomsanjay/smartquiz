@@ -2,104 +2,133 @@ package com.smartquiz
 
 import android.os.Bundle
 import android.util.Log
-import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.google.firebase.auth.FirebaseAuth
+import com.google.auth.oauth2.GoogleCredentials
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreException
 import com.smartquiz.databinding.ActivityAdminAnnouncementsBinding
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 
 class AdminAnnouncementsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityAdminAnnouncementsBinding
     private lateinit var db: FirebaseFirestore
-    private lateinit var auth: FirebaseAuth
-    private val TAG = "AdminAnnouncements"
+
+    // ⚠️ REPLACE THIS WITH YOUR ACTUAL FIREBASE PROJECT ID
+    private val PROJECT_ID = "smartquiz-51b9d"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityAdminAnnouncementsBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         db = FirebaseFirestore.getInstance()
-        auth = FirebaseAuth.getInstance()
-
-        val currentUser = auth.currentUser
-        if (currentUser == null) {
-            Toast.makeText(this, "You must be logged in", Toast.LENGTH_LONG).show()
-            finish()
-            return
-        }
-
-        // --- HEAVY LOGGING FOR DEBUGGING ---
-        Log.d(TAG, "======================================")
-        Log.d(TAG, "CURRENT USER UID: ${currentUser.uid}")
-        Log.d(TAG, "CURRENT USER EMAIL: ${currentUser.email}")
-
-        db.collection("users").document(currentUser.uid).get()
-            .addOnSuccessListener { doc ->
-                if (doc.exists()) {
-                    val role = doc.getString("role")
-                    Log.d(TAG, "FIRESTORE DB ROLE: '$role' (Make sure this is exactly 'admin')")
-                } else {
-                    Log.e(TAG, "USER DOCUMENT MISSING IN FIRESTORE!")
-                }
-            }
-        Log.d(TAG, "======================================")
 
         binding.btnSend.setOnClickListener {
             val title = binding.etTitle.text.toString().trim()
             val message = binding.etMessage.text.toString().trim()
-
             if (title.isEmpty() || message.isEmpty()) {
                 Toast.makeText(this, "Please fill both fields", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-
             sendAnnouncement(title, message)
         }
     }
 
     private fun sendAnnouncement(title: String, message: String) {
-        binding.btnSend.isEnabled = false
-        binding.btnSend.text = "Sending..."
-        binding.progressBar.visibility = View.VISIBLE
-
         val announcement = hashMapOf(
             "title" to title,
             "message" to message,
-            "timestamp" to System.currentTimeMillis(),
-            "senderId" to (auth.currentUser?.uid ?: "")
+            "timestamp" to System.currentTimeMillis()
         )
 
+        // 1. Save to Firestore
         db.collection("announcements").add(announcement)
-            .addOnSuccessListener { docRef ->
-                binding.btnSend.isEnabled = true
-                binding.btnSend.text = "Send Announcement"
-                binding.progressBar.visibility = View.GONE
-
-                Toast.makeText(this, "Announcement sent successfully!", Toast.LENGTH_SHORT).show()
-                binding.etTitle.setText("")
-                binding.etMessage.setText("")
-                finish()
+            .addOnSuccessListener {
+                Toast.makeText(this, "Announcement saved! Sending push...", Toast.LENGTH_SHORT).show()
+                fetchTokensAndSendPush(title, message)
             }
             .addOnFailureListener { e ->
-                binding.btnSend.isEnabled = true
-                binding.btnSend.text = "Send Announcement"
-                binding.progressBar.visibility = View.GONE
+                Toast.makeText(this, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+    }
 
-                Log.e(TAG, "FAILED TO SEND ANNOUNCEMENT", e)
-
-                if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                    Toast.makeText(this, "PERMISSION DENIED. Check Logcat for details.", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_LONG).show()
+    private fun fetchTokensAndSendPush(title: String, message: String) {
+        db.collection("users").get().addOnSuccessListener { documents ->
+            val tokens = mutableListOf<String>()
+            for (doc in documents) {
+                val token = doc.getString("fcmToken")
+                val isBanned = doc.getBoolean("isBanned") ?: false
+                if (!token.isNullOrEmpty() && !isBanned) {
+                    tokens.add(token)
                 }
             }
+
+            if (tokens.isEmpty()) {
+                Toast.makeText(this, "No users have notification tokens.", Toast.LENGTH_SHORT).show()
+                return@addOnSuccessListener
+            }
+
+            // Run on background thread
+            Thread {
+                try {
+                    // 2. Get Access Token using the JSON file
+                    val stream = assets.open("service-account.json")
+                    val credentials = GoogleCredentials.fromStream(stream)
+                        .createScoped(listOf("https://www.googleapis.com/auth/firebase.messaging"))
+
+                    credentials.refreshIfExpired()
+                    val accessToken = credentials.accessToken.tokenValue
+
+                    // 3. Send to each token via HTTP v1 API
+                    for (token in tokens) {
+                        sendFcmV1Request(accessToken, token, title, message)
+                    }
+
+                    runOnUiThread {
+                        Toast.makeText(this, "Push notifications sent!", Toast.LENGTH_SHORT).show()
+                        finish()
+                    }
+                } catch (e: Exception) {
+                    Log.e("FCM_SENDER", "Error sending push", e)
+                    runOnUiThread {
+                        Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.start()
+        }
+    }
+
+    private fun sendFcmV1Request(accessToken: String, deviceToken: String, title: String, message: String) {
+        val url = URL("https://fcm.googleapis.com/v1/projects/$PROJECT_ID/messages:send")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Authorization", "Bearer $accessToken")
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.doOutput = true
+
+        val body = JSONObject().apply {
+            put("message", JSONObject().apply {
+                put("token", deviceToken)
+                put("notification", JSONObject().apply {
+                    put("title", title)
+                    put("body", message)
+                })
+            })
+        }
+
+        val outputStream = OutputStreamWriter(conn.outputStream)
+        outputStream.write(body.toString())
+        outputStream.flush()
+        outputStream.close()
+
+        val responseCode = conn.responseCode
+        Log.d("FCM_SENDER", "FCM Response: $responseCode")
     }
 
     override fun onSupportNavigateUp(): Boolean {
