@@ -4,15 +4,16 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
-import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.smartquiz.databinding.ActivityBulkImportBinding
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.File
 import java.io.FileOutputStream
 
@@ -94,15 +95,9 @@ class BulkImportActivity : AppCompatActivity() {
 
         binding.btnImport.setOnClickListener { confirmImportSafely() }
 
+        // Template Downloads
         binding.btnDownloadCsvTemplate.setOnClickListener { downloadCsvTemplateSafely() }
-
-        binding.btnDownloadXlsxTemplate.setOnClickListener {
-            Toast.makeText(
-                this,
-                "Open the CSV template in Excel and save as .xlsx to import.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
+        binding.btnDownloadXlsxTemplate.setOnClickListener { downloadExcelTemplateSafely() }
 
         binding.btnViewJsonFormat.setOnClickListener { showJsonFormatSafely() }
 
@@ -227,7 +222,7 @@ class BulkImportActivity : AppCompatActivity() {
     }
 
     // ==================================================================
-    // EDIT PENDING QUESTION (safe wrapper)
+    // EDIT PENDING QUESTION
     // ==================================================================
     private fun editPendingQuestionSafely(index: Int) {
         try {
@@ -346,11 +341,7 @@ class BulkImportActivity : AppCompatActivity() {
                     }
                     val points = etPoints.text.toString().toIntOrNull() ?: 0
                     if (text.isBlank() || points <= 0) {
-                        Toast.makeText(
-                            this,
-                            "Fill question text and points",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        Toast.makeText(this, "Fill question text and points", Toast.LENGTH_SHORT).show()
                         return@setPositiveButton
                     }
 
@@ -363,9 +354,7 @@ class BulkImportActivity : AppCompatActivity() {
                                 etOption4.text.toString().trim()
                             ).filter { it.isNotEmpty() }
                             if (opts.size < 2) {
-                                Toast.makeText(
-                                    this, "Radio needs ≥2 options", Toast.LENGTH_SHORT
-                                ).show()
+                                Toast.makeText(this, "Radio needs ≥2 options", Toast.LENGTH_SHORT).show()
                                 return@setPositiveButton
                             }
                             q.copy(
@@ -389,11 +378,7 @@ class BulkImportActivity : AppCompatActivity() {
                             if (cbCorrect3.isChecked) correct.add(2)
                             if (cbCorrect4.isChecked) correct.add(3)
                             if (opts.size < 2 || correct.isEmpty()) {
-                                Toast.makeText(
-                                    this,
-                                    "Checkbox needs options + ≥1 correct",
-                                    Toast.LENGTH_SHORT
-                                ).show()
+                                Toast.makeText(this, "Checkbox needs options + ≥1 correct", Toast.LENGTH_SHORT).show()
                                 return@setPositiveButton
                             }
                             q.copy(
@@ -407,9 +392,7 @@ class BulkImportActivity : AppCompatActivity() {
                         else -> {
                             val ans = etCorrectAnswerText.text.toString().trim()
                             if (ans.isBlank()) {
-                                Toast.makeText(
-                                    this, "Descriptive needs an answer", Toast.LENGTH_SHORT
-                                ).show()
+                                Toast.makeText(this, "Descriptive needs an answer", Toast.LENGTH_SHORT).show()
                                 return@setPositiveButton
                             }
                             q.copy(
@@ -427,11 +410,7 @@ class BulkImportActivity : AppCompatActivity() {
                     Toast.makeText(this, "Question updated", Toast.LENGTH_SHORT).show()
                 } catch (t: Throwable) {
                     Log.e(TAG, "Saving edited question crashed", t)
-                    Toast.makeText(
-                        this,
-                        "Failed to save: ${t.message}",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(this, "Failed to save: ${t.message}", Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -466,7 +445,6 @@ class BulkImportActivity : AppCompatActivity() {
         }
     }
 
-    /** Recomputes duplicate flags after the pending list changes. */
     private fun rebuildDuplicateFlags() {
         duplicateIndices.clear()
         val seen = mutableSetOf<String>()
@@ -526,11 +504,7 @@ class BulkImportActivity : AppCompatActivity() {
                         finish()
                     } catch (t: Throwable) {
                         Log.e(TAG, "Failed to open QuizCreationActivity", t)
-                        Toast.makeText(
-                            this,
-                            "Could not open quiz editor: ${t.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        Toast.makeText(this, "Could not open quiz editor: ${t.message}", Toast.LENGTH_LONG).show()
                     }
                 }
                 .setNegativeButton("Cancel", null)
@@ -545,8 +519,7 @@ class BulkImportActivity : AppCompatActivity() {
     // ==================================================================
     private fun downloadCsvTemplateSafely() {
         try {
-            val header =
-                "question,type,optionA,optionB,optionC,optionD,answer,marks,negativeMarks\n"
+            val header = "question,type,optionA,optionB,optionC,optionD,answer,marks,negativeMarks\n"
             val rows = listOf(
                 "\"What is TCP?\",\"RADIO\",\"Protocol\",\"Language\",\"Database\",\"OS\",\"A\",2,0.5",
                 "\"Which are transport protocols?\",\"CHECKBOX\",\"TCP\",\"UDP\",\"HTTP\",\"FTP\",\"A|B\",2,0.5",
@@ -556,18 +529,87 @@ class BulkImportActivity : AppCompatActivity() {
 
             val file = File(getExternalFilesDir(null), "questions_template.csv")
             FileOutputStream(file).use { it.write(csv.toByteArray()) }
-            Toast.makeText(
-                this,
-                "Template saved: ${file.absolutePath}",
-                Toast.LENGTH_LONG
-            ).show()
+
+            // FIXED: Trigger Share Sheet so the user can actually save it
+            shareFile(file, "text/csv")
+
         } catch (t: Throwable) {
             Log.e(TAG, "downloadCsvTemplate crashed", t)
-            Toast.makeText(
+            Toast.makeText(this, "Failed to save template: ${t.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun downloadExcelTemplateSafely() {
+        try {
+            // 1. Create a real Excel Workbook
+            val workbook = XSSFWorkbook()
+            val sheet = workbook.createSheet("Questions")
+
+            // 2. Add Headers
+            val headers = listOf(
+                "question", "type", "optionA", "optionB", "optionC", "optionD",
+                "answer", "marks", "negativeMarks"
+            )
+            val headerRow = sheet.createRow(0)
+            headers.forEachIndexed { index, header ->
+                headerRow.createCell(index).setCellValue(header)
+            }
+
+            // 3. Add Sample Rows
+            val sampleRow1 = sheet.createRow(1)
+            sampleRow1.createCell(0).setCellValue("What is TCP?")
+            sampleRow1.createCell(1).setCellValue("RADIO")
+            sampleRow1.createCell(2).setCellValue("Protocol")
+            sampleRow1.createCell(3).setCellValue("Language")
+            sampleRow1.createCell(4).setCellValue("Database")
+            sampleRow1.createCell(5).setCellValue("OS")
+            sampleRow1.createCell(6).setCellValue("A")
+            sampleRow1.createCell(7).setCellValue(2.0)
+            sampleRow1.createCell(8).setCellValue(0.5)
+
+            val sampleRow2 = sheet.createRow(2)
+            sampleRow2.createCell(0).setCellValue("Explain TCP.")
+            sampleRow2.createCell(1).setCellValue("DESCRIPTIVE")
+            sampleRow2.createCell(6).setCellValue("Transmission Control Protocol")
+            sampleRow2.createCell(7).setCellValue(5.0)
+            sampleRow2.createCell(8).setCellValue(0.0)
+
+            // 4. Set column widths (Avoids Android crash from autoSizeColumn)
+            val columnWidths = intArrayOf(60 * 256, 12 * 256, 18 * 256, 18 * 256, 18 * 256, 18 * 256, 30 * 256, 8 * 256, 14 * 256)
+            for (i in columnWidths.indices) {
+                sheet.setColumnWidth(i, columnWidths[i])
+            }
+
+            // 5. Save file
+            val file = File(getExternalFilesDir(null), "questions_template.xlsx")
+            FileOutputStream(file).use { workbook.write(it) }
+            workbook.close()
+
+            // 6. Trigger Share Sheet
+            shareFile(file, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        } catch (t: Throwable) {
+            Log.e(TAG, "Excel template generation failed", t)
+            Toast.makeText(this, "Failed to generate Excel template: ${t.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun shareFile(file: File, mimeType: String) {
+        try {
+            val uri = FileProvider.getUriForFile(
                 this,
-                "Failed to save template: ${t.message}",
-                Toast.LENGTH_SHORT
-            ).show()
+                "$packageName.fileprovider",
+                file
+            )
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "SmartQuiz Template")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "Save or Share Template"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error sharing file: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 

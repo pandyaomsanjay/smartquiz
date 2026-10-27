@@ -3,4 +3,25 @@
     <string name="points_format">Points: %d</string>
     <string name="default_web_client_id">YOUR_WEB_CLIENT_ID_HERE</string>
     <string name="label_you">(You)</string>
+
+    <!-- Tutorial screen -->
+    <string name="tutorial_toolbar_title">Help &amp; Tutorials</string>
+    <string name="tutorial_toolbar_subtitle">Learn how to use SmartQuiz</string>
+    <string name="tutorial_welcome_title">Welcome to SmartQuiz</string>
+    <string name="tutorial_welcome_subtitle">Find quick answers and step-by-step guidance for quizzes, results, and creator tools.</string>
+    <string name="tutorial_search_hint">Search tutorials, features, or questions…</string>
+
+    <string name="tutorial_no_results_title">No tutorials found</string>
+    <string name="tutorial_no_results_message">Try another keyword or clear your search.</string>
+    <string name="tutorial_clear_search">Clear Search</string>
+
+    <string name="tutorial_category_all">All</string>
+    <string name="tutorial_category_getting_started">Getting Started</string>
+    <string name="tutorial_category_taking_quizzes">Taking Quizzes</string>
+    <string name="tutorial_category_results">Results</string>
+    <string name="tutorial_category_creating">Creating Quizzes</string>
+    <string name="tutorial_category_troubleshooting">Troubleshooting</string>
+
+    <string name="tutorial_expand">Expand section</string>
+    <string name="tutorial_collapse">Collapse section</string>
 </resources>

@@ -1,55 +1,73 @@
 package com.smartquiz
 
+import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.smartquiz.databinding.ItemTutorialSectionBinding
 
-class TutorialSectionAdapter(
-    private val sections: List<TutorialSection>
-) : RecyclerView.Adapter<TutorialSectionAdapter.SectionViewHolder>() {
+class TutorialSectionAdapter :
+    ListAdapter<TutorialSection, TutorialSectionAdapter.VH>(DIFF) {
 
-    private val expandedStates = mutableMapOf<Int, Boolean>().apply {
-        sections.indices.forEach { this[it] = false } // all collapsed by default
+    /** Titles currently expanded. Keyed by title, not position, so it survives filtering. */
+    private val expandedTitles = mutableSetOf<String>()
+
+    class VH(val binding: ItemTutorialSectionBinding) : RecyclerView.ViewHolder(binding.root)
+
+    companion object {
+        private val DIFF = object : DiffUtil.ItemCallback<TutorialSection>() {
+            override fun areItemsTheSame(a: TutorialSection, b: TutorialSection) = a.title == b.title
+            override fun areContentsTheSame(a: TutorialSection, b: TutorialSection) = a == b
+        }
+
+        private fun Context.dpToPx(dp: Int): Int =
+            (dp * resources.displayMetrics.density).toInt()
     }
 
-    class SectionViewHolder(val binding: ItemTutorialSectionBinding) :
-        RecyclerView.ViewHolder(binding.root)
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH =
+        VH(ItemTutorialSectionBinding.inflate(
+            LayoutInflater.from(parent.context), parent, false))
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SectionViewHolder {
-        val binding = ItemTutorialSectionBinding.inflate(
-            LayoutInflater.from(parent.context), parent, false
-        )
-        return SectionViewHolder(binding)
-    }
+    override fun onBindViewHolder(holder: VH, position: Int) {
+        val section = getItem(position)
+        val b = holder.binding
+        val ctx = b.root.context
+        val isExpanded = expandedTitles.contains(section.title)
 
-    override fun onBindViewHolder(holder: SectionViewHolder, position: Int) {
-        val section = sections[position]
-        val isExpanded = expandedStates[position] ?: false
+        b.ivIcon.setImageResource(section.iconRes)
+        b.tvTitle.text = section.title
+        b.tvCategory.text = section.category
+        b.tvCategory.visibility = View.VISIBLE
+        b.tvDescription.text = section.description
 
-        holder.binding.ivIcon.setImageResource(section.iconRes)
-        holder.binding.tvTitle.text = section.title
-        holder.binding.tvDescription.text = section.description
-        holder.binding.tvExpandIndicator.text = if (isExpanded) "▲" else "▼"
+        // Rotation matches expanded state
+        b.tvExpandIndicator.rotation = if (isExpanded) 180f else 0f
+        b.tvExpandIndicator.contentDescription =
+            ctx.getString(if (isExpanded) R.string.tutorial_collapse
+            else R.string.tutorial_expand)
 
-        // Bullet points
-        val bulletContainer = holder.binding.llBulletPoints
+        // Rebuild bullet views only on bind; hidden container prevents re-layout cost
+        val bulletContainer = b.llBulletPoints
         bulletContainer.removeAllViews()
-        if (isExpanded) {
+        if (isExpanded && section.bulletPoints.isNotEmpty()) {
             bulletContainer.visibility = View.VISIBLE
-            section.bulletPoints.forEach { point ->
-                val tv = TextView(holder.itemView.context).apply {
+            for (point in section.bulletPoints) {
+                val tv = TextView(ctx).apply {
                     text = "• $point"
                     textSize = 14f
-                    setTextColor(holder.itemView.context.getColor(R.color.text_secondary))
-                    layoutParams = ViewGroup.LayoutParams(
+                    setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+                    setLineSpacing(0f, 1.15f)
+                    setPadding(0, ctx.dpToPx(4), 0, ctx.dpToPx(4))
+                    layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
                     )
-                    setPadding(0, 4, 0, 4)
                 }
                 bulletContainer.addView(tv)
             }
@@ -57,12 +75,24 @@ class TutorialSectionAdapter(
             bulletContainer.visibility = View.GONE
         }
 
-        // Toggle expansion on click
-        holder.itemView.setOnClickListener {
-            expandedStates[position] = !isExpanded
-            notifyItemChanged(position)
+        b.root.setOnClickListener {
+            val wasExpanded = expandedTitles.contains(section.title)
+            if (wasExpanded) expandedTitles.remove(section.title)
+            else expandedTitles.add(section.title)
+            val pos = holder.adapterPosition
+            if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos)
         }
     }
 
-    override fun getItemCount(): Int = sections.size
+    /** Used by the toolbar "expand all / collapse all" (optional hook; not wired). */
+    fun expandAll(sections: List<TutorialSection>) {
+        expandedTitles.clear()
+        sections.forEach { expandedTitles.add(it.title) }
+        notifyDataSetChanged()
+    }
+
+    fun collapseAll() {
+        expandedTitles.clear()
+        notifyDataSetChanged()
+    }
 }

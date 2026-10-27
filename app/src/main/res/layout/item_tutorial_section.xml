@@ -1,21 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="8dp"
+    android:layout_marginVertical="6dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
     app:cardCornerRadius="16dp"
     app:cardElevation="2dp"
-    android:clickable="true"
-    android:focusable="true">
+    app:cardBackgroundColor="@color/surface_card"
+    app:strokeColor="@color/border_light"
+    app:strokeWidth="1dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="14dp">
 
-        <!-- Header -->
+        <!-- Header row: icon, title, expand indicator -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -24,9 +29,10 @@
 
             <ImageView
                 android:id="@+id/ivIcon"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                app:tint="@color/primary" />
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                app:tint="@color/primary"
+                android:contentDescription="@null" />
 
             <TextView
                 android:id="@+id/tvTitle"
@@ -35,18 +41,35 @@
                 android:layout_weight="1"
                 android:layout_marginStart="12dp"
                 android:text="Section Title"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary" />
 
             <TextView
                 android:id="@+id/tvExpandIndicator"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:gravity="center"
                 android:text="▼"
-                android:textSize="18sp"
+                android:textSize="14sp"
                 android:textColor="@color/text_secondary" />
         </LinearLayout>
+
+        <!-- Category pill -->
+        <TextView
+            android:id="@+id/tvCategory"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@color/surface_variant"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:text="Getting Started"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary" />
 
         <!-- Description -->
         <TextView
@@ -54,17 +77,18 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Description"
+            android:text="Short description of the section."
             android:textSize="14sp"
+            android:lineSpacingExtra="2dp"
             android:textColor="@color/text_secondary" />
 
-        <!-- Bullet points (expandable) -->
+        <!-- Bullet points (dynamically populated, hidden when collapsed) -->
         <LinearLayout
             android:id="@+id/llBulletPoints"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
             android:layout_marginTop="12dp"
+            android:orientation="vertical"
             android:visibility="gone" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
