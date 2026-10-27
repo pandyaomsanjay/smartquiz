@@ -1,8 +1,22 @@
-# 🧠 Smart Quiz – Android App
+# 🧠 Smart Quiz — Android App
 
-**Smart Quiz** is a full-featured Android quiz platform that allows users to participate in quizzes, create and manage their own quizzes, compete through leaderboards, and provides administrative tools for managing the platform.
+A full-featured Android quiz platform built with **Kotlin**, **XML**, and **Firebase**. Smart Quiz enables users to participate in quizzes, create and manage their own quizzes, compete through leaderboards, and provides administrative tools for platform governance.
 
-The application is built using **Kotlin**, **XML**, and **Firebase**, with support for authentication, Cloud Firestore, Firebase Storage, push notifications, multimedia questions, scenario-based questions, quiz analytics, smart descriptive answer matching, and anti-cheating mechanisms.
+The application uses **Cloud Firestore**, **Firebase Storage**, **Firebase Cloud Messaging**, and **Google Sign-In**, with support for multimedia questions, scenario-based questions, quiz analytics, smart descriptive answer matching, and anti-cheating mechanisms.
+
+---
+
+## ⚠️ Pre-Release Status
+
+Smart Quiz is currently **pre-release**. The application works end-to-end, but several security and stability issues must be resolved before public deployment. See [Known Issues](#-known-issues) and [Security Notes](#-security-notes) below.
+
+The three highest-priority items are:
+
+1. **A Firebase service account key was previously shipped inside the APK** and must be revoked.
+2. **Firestore security rules contain vulnerabilities** that allow users to modify privileged fields.
+3. **Google Sign-In requires a valid OAuth Web Client ID** before it will function.
+
+Details for each are provided in the setup and security sections.
 
 ---
 
@@ -10,135 +24,116 @@ The application is built using **Kotlin**, **XML**, and **Firebase**, with suppo
 
 ### 👤 For All Users
 
-* **Authentication**
-  * Email/Password authentication
-  * Google Sign-In
-  * Password reset
-  * **Persistent login** — user stays signed in until explicit logout
-  * Role-aware startup routing: `USER → Home`, `ADMIN → Admin Panel`
-  * No passwords stored locally (Firebase Auth SDK handles credentials)
+**Authentication**
+- Email/Password sign-up and sign-in
+- Google Sign-In
+- Password reset via email
+- Persistent login (session survives app restart and reboot)
+- Role-aware startup routing (users → Home, admins → Admin Panel)
+- Banned-user guard on sign-in
 
-* **Dashboard (Home)**
-  * Personal greeting, avatar, and daily streak
-  * **Real-time "Quizzes Joined"** count (public + private, deduplicated)
-  * Global standings placeholder
-  * Quick actions: Create Quiz, Join Quiz, Leaderboard, My Quizzes, Profile, Settings, Logout
-  * **Public Quizzes** section with live lifecycle status badges
-  * Admin card visible only to admin accounts
+**Dashboard (Home)**
+- Personal greeting, avatar, and daily streak
+- Real-time "Quizzes Joined" count via Firestore snapshot
+- Global standings placeholder
+- Quick actions: Create Quiz, Join Quiz, Leaderboard, My Quizzes, Profile, Settings, Logout
+- Public quizzes section with live lifecycle status badges
+- Admin card visible only to admin accounts
 
-* **Public Quiz Listing**
-  * Quiz title, description, creator name
-  * Number of questions, total marks, timer mode
-  * **Start date/time** and **due date/time**
-  * **Participant count** (atomic increment)
-  * Lifecycle status: **UPCOMING**, **LIVE**, **COMPLETED**, **EXPIRED**, **DELETED**
-  * Dynamic join button: `Join / Start`, `Continue`, `View Result`, `Starts Soon`, or `Expired`
+**Public Quiz Listing**
+- Quiz title, description, creator, question count, timer mode
+- Start date/time and due date/time
+- Participant count with atomic increment
+- Lifecycle status: UPCOMING, LIVE, COMPLETED, EXPIRED, DELETED
+- Dynamic join button: Join / Start, Continue, View Result, Starts Soon, Expired
 
-* **Join Quiz**
-  * Join using a 6-digit quiz code
-  * Scan a QR code to join
-  * Auto-verified against quiz lifecycle (only LIVE quizzes joinable)
-  * Participant count incremented only on first join (Firestore transaction, no double-counting)
+**Join Quiz**
+- 6-digit quiz code
+- QR code scanning
+- Lifecycle validation (only LIVE quizzes joinable)
+- Idempotent participant count increment (Firestore transaction)
 
-* **Quiz Attempt**
-  * Timed quizzes (No Timer, Whole Quiz, Per Question)
-  * Negative marking support
-  * Image, audio, and video questions
-  * **Scenario questions** with context banner above each sub-question
-  * Bookmark questions
-  * Mark questions for review
-  * Question navigation grid
-  * **Auto-save** — answers, states, timer, and current index persisted to Firestore
-  * **Resume** — attempt restored on app restart
-  * **Smart descriptive answer matching** (see below)
+**Quiz Attempt**
+- Flexible timing: No Timer, Whole Quiz, Per Question
+- Negative marking support
+- Image, audio, and video questions
+- Scenario questions with context banner above each sub-question
+- Bookmark questions
+- Mark for review
+- Question navigation grid
+- Auto-save of answers, states, timer, and current index to Firestore
+- Resume attempts after app kill or crash
+- Smart descriptive answer matching
 
-* **Results**
-  * Score, percentage, time taken
-  * Submission reason (Normal, Timer Expired, Auto-Submitted)
-  * Timer-expiry status
-  * Cheat-warning status
+**Results**
+- Score, percentage, time taken
+- Submission reason: Normal, Timer Expired, Auto-Submitted
+- Score visibility respects creator's `showScoreAfterSubmission` setting
 
-* **Leaderboards**
-  * Global leaderboard
-  * Per-quiz leaderboard
-  * Highlights current user's ranking
-  * Respects `showScoreAfterSubmission` visibility
+**Leaderboards**
+- Global leaderboard
+- Per-quiz leaderboard
+- Current user highlighting
+- Respects score visibility
 
-* **Profile**
-  * Upload profile avatar
-  * Change display name
-  * View earned badges
+**Profile**
+- Upload profile avatar
+- Change display name
+- View earned badges
 
-* **Settings**
-  * App tutorial (updated with all new features)
-  * Change password
-  * Delete account
-  * Logout (with confirmation dialog)
+**Settings**
+- Comprehensive in-app tutorial (42 sections)
+- Change password
+- Set password for Google accounts
+- Logout with confirmation dialog
 
-* **Feedback**
-  * Rate quizzes
-  * Submit comments and feedback
+**Feedback**
+- Rate quizzes
+- Submit comments
 
-* **Push Notifications**
-  * Receive announcements through Firebase Cloud Messaging (FCM)
+**Push Notifications**
+- FCM announcements from administrators
+- Automatic token refresh
 
 ---
 
-## 👨‍💻 Features for Quiz Creators
+### 👨‍💻 For Quiz Creators
 
-> **Note:** There is **no separate "Creator" role.** Every authenticated user (`role = "user"`) can create, edit, publish, and manage their own quizzes. Admins have additional moderation tools.
+> There is no separate "Creator" role. Every authenticated `role = "user"` account can create, edit, publish, and manage their own quizzes.
 
-### Create Quizzes
+**Create Quizzes**
+- Title, description
+- Required total question count (validated against actual questions)
+- Public / Private visibility
+- Timer type, whole-quiz timer, per-question timer
+- Start time and deadline
+- Negative marking
+- Randomization: Fixed order, Random questions, Random questions + options
+- Show score after submission toggle
 
-Creators can configure:
+**Question Types**
+- Radio (Single Choice)
+- Checkbox (Multiple Choice)
+- Descriptive (Multi-line text)
+- Scenario (Case study with sub-questions)
 
-* Quiz title
-* Description
-* **Total Questions (required)** — validated against actual question count
-* Public / private visibility
-* Quiz timer mode
-* Whole-quiz timer
-* Per-question timer
-* Start date/time
-* Deadline
-* Negative marking
-* Randomization: Fixed / Random Questions / Random Questions + Options
-* Score visibility
+Questions support image, audio, and video URLs plus custom point values.
 
-### Add Questions
+**Scenario Questions**
+- Scenario is a container, not counted as a separate question
+- Sub-question types: Radio, Checkbox, Descriptive
+- Multiple scenarios per quiz
+- Scenarios and normal questions can be mixed in any order
+- Context banner shown above each sub-question during attempts
+- Sub-questions count toward the quiz total
 
-Supported question types:
+**Smart Descriptive Answer Matching**
 
-* **Radio** (Single Choice)
-* **Checkbox** (Multiple Choice)
-* **Descriptive** (Multi-line text)
-* **Scenario** (Case study with sub-questions)
-
-Questions can also contain:
-
-* Images
-* Audio
-* Video
-* Custom point values
-
-### Scenario Questions
-
-* **Scenario** is a container/case study with multiple sub-questions.
-* The scenario itself is **NOT** counted as a separate question.
-* Sub-question types: Radio, Checkbox, Descriptive.
-* Multiple scenarios can be added to a single quiz.
-* Scenarios and normal questions can be **mixed in any order**.
-* The scenario context is displayed above every related sub-question during the attempt.
-* Scenario sub-questions count toward the quiz total.
-
-### Smart Descriptive Answer Matching
-
-Descriptive answers use a centralized `DescriptiveAnswerMatcher` that ignores harmless formatting differences:
+Answers are normalized before comparison, ignoring harmless formatting differences:
 
 | Correct Answer | Student Answer | Result |
 |----------------|----------------|--------|
 | `123 456` | `123456` | ✅ Correct |
-| `123456` | `123 456` | ✅ Correct |
 | `1000` | `1,000` | ✅ Correct |
 | `10.50` | `10.5` | ✅ Correct |
 | `ABC 123` | `ABC123` | ✅ Correct |
@@ -147,173 +142,143 @@ Descriptive answers use a centralized `DescriptiveAnswerMatcher` that ignores ha
 | `TCP` | `UDP` | ❌ Incorrect |
 | `123` | `124` | ❌ Incorrect |
 
-**Normalization pipeline:**
+Normalization pipeline:
 1. Trim leading/trailing whitespace
 2. Unicode NFKC normalization
-3. Collapse repeated whitespace (spaces, tabs, newlines)
-4. Case-insensitive (`Locale.ROOT`)
+3. Collapse repeated whitespace
+4. Case-insensitive comparison (`Locale.ROOT`)
 5. Numeric equivalence (strips `,`, `_`, `'`, spaces)
 6. Alphanumeric formatting equivalence (only when both sides contain a digit)
 
-The student's original answer and the creator's original correct answer are **never modified** — normalization is used only for comparison.
+The student's original answer and the creator's original correct answer are never modified — normalization is used only for comparison.
 
-### Draft System
+**Draft System**
+- Save quizzes as drafts
+- Edit drafts later
+- Publish with validation (configured count must equal actual count)
 
-* Save quizzes as drafts
-* Edit drafts later
-* Publish quizzes when ready
-* Scenarios work in drafts exactly like published quizzes
+**Quiz Statistics**
+- Participant list with sort / filter / search
+- Scores and time spent
+- Score distribution bar chart
+- Completion rate, highest, lowest, average
+- Most incorrect question
+- Average duration
 
-### Quiz Statistics
+**Data Export**
+- Participant results as CSV
+- Participant results as PDF
+- Question paper (with or without answers) as PDF
+- Questions as bulk-import-compatible CSV or XLSX
+- Per-participant answer sheet PDF
 
-Creators can view:
+**QR Code Generation**
+- Generate join QR codes
+- Share QR images
 
-* Participant list with sort/filter/search
-* Participant scores and time spent
-* Score distribution bar chart
-* Completion rate
-* Highest / lowest score
-* Most incorrect question
-* Average duration
-
-### Data Export
-
-* Export results as CSV
-* Export results as PDF
-* Download question papers (with answers / without answers)
-* Download answer sheet PDF for each participant
-
-### QR Code
-
-Generate a QR code to allow users to quickly join a quiz.
-
-### Creator Analytics
-
-Creators can view:
-
-* Total participants
-* Completion rate
-* Highest score
-* Lowest score
-* Most incorrect question
-* Auto-submit count
-* Custom leaderboard
-* Date range filter (Today, Last 7 Days, Last 30 Days, Custom)
+**Creator Analytics**
+- Total participants, completion rate
+- Highest and lowest scores
+- Most incorrect question
+- Auto-submit count
+- Custom leaderboard
+- Date-range filter (Today, Last 7 Days, Last 30 Days, Custom)
 
 ---
 
-## 🛡️ Administrator Features
+### 🛡️ For Administrators
 
-### Admin Panel
+**Admin Panel**
+- Identity card with name, email, and avatar
+- Overview statistics: users, quizzes, public quizzes, announcements published
+- Recent quizzes feed
 
-Administrators can:
+**User Management**
+- View all users
+- Promote to admin
+- Ban / unban
+- Block / unblock with reason
+- Role and status chips
 
-* View registered users
-* Block users (with reason)
-* Ban users
-* View admin analytics
+**Quiz Management**
+- View all quizzes
+- Filter by visibility (public / private / published)
+- Search by title or quiz code
+- Delete quizzes
+- View per-quiz statistics
 
-### Quiz Management
+**Cheat Logs**
+- Per-quiz view
+- Global collection-group view
+- Device model, Android version, event type, timestamp, violation count
+- Suspicious event flags
 
-* View / manage all quizzes
-* Delete quizzes when required
+**Announcements**
+- Compose and send platform-wide announcements
+- FCM push to all non-banned users
+- Past announcements history
 
-### Cheat Logs
-
-Monitor suspicious activity including:
-
-* App minimization (`APP_BACKGROUND`)
-* Back button activity (`BACK_BUTTON`)
-* Focus loss (`FOCUS_LOST`)
-* App switching (`HOME_OR_RECENTS`)
-
-Each log includes user details, quiz, device model, Android version, timestamp, and violation count.
-
-### App Analytics
-
-View:
-
-* Total users
-* Total quizzes
-* Total attempts
-* Average score
-
-### Announcements
-
-Administrators can send announcements to users through Firebase Cloud Messaging.
+**Platform Analytics**
+- Total users
+- Total quizzes (overall, public, published)
+- Total attempts
+- Average score
+- Cheat alert count
 
 ---
 
-## 🚫 Anti-Cheating & Integrity
+## 🚫 Anti-Cheating
 
-Smart Quiz includes several mechanisms to improve quiz integrity.
+**Screen Security**
+- `FLAG_SECURE` on quiz screens blocks screenshots and screen recording
 
-### 🔒 Screen Security
+**Cheat Detection**
 
-`FLAG_SECURE` is used to prevent screenshots and screen recording during protected quiz screens.
-
-### 🚨 Cheat Detection
-
-The application monitors events such as:
-
-* App switching
-* Back button usage
-* Home / Recents navigation
-* Window focus loss
-* App minimization
+Monitored events:
+- `APP_BACKGROUND` — process lifecycle
+- `HOME_OR_RECENTS` — user leaves via recents
+- `FOCUS_LOST` — window focus lost
+- `BACK_BUTTON` — back press
 
 Events are debounced (500 ms) to avoid duplicate logging.
 
-### ⚠️ Violation System
+**Violation System**
+- Warning 1/3 — first reminder
+- Warning 2/3 — final warning
+- Warning 3/3 — automatic submission
 
-Users receive progressive warnings for suspicious activity:
+**Attempt Limits**
+- Completed attempts blocked from re-attempting (unless creator enables multiple attempts)
 
-* Warning 1/3 — first reminder
-* Warning 2/3 — final warning
-* Warning 3/3 — automatic submission
-
-### 🔢 Attempt Limits
-
-Multiple quiz completions are restricted unless the quiz creator enables multiple attempts.
-
-### ⏱️ Timer Management
-
-The application supports:
-
-* No timer
-* Whole-quiz timer
-* Per-question timer (locks question on expiry, moves to next)
-* Automatic submission when the whole-quiz timer expires
-
-Scenario sub-questions use the same timer configuration as normal questions.
+**Timer Management**
+- No timer
+- Whole-quiz timer (auto-submit on expiry)
+- Per-question timer (locks question on expiry, moves to next)
 
 ---
 
-## 🌐 Public Quiz Lifecycle & Auto-Expiry
-
-Public quizzes have a full lifecycle managed by the app:
+## 🌐 Public Quiz Lifecycle
 
 ```
-UPCOMING  →  LIVE  →  EXPIRED  →  ARCHIVED
+UPCOMING → LIVE → EXPIRED → ARCHIVED
 ```
 
-* **UPCOMING** — start time is in the future; join button disabled
-* **LIVE** — joinable window
-* **EXPIRED** — deadline passed; join blocked
-* **ARCHIVED** — automatically archived 24 hours after the due time
+- **UPCOMING** — start time in future; join disabled
+- **LIVE** — joinable window
+- **EXPIRED** — deadline passed; join blocked
+- **ARCHIVED** — auto-archived 24 hours after deadline
 
 **Archiving behavior:**
-* A client-side sweep runs on every app launch (`ExpiredQuizArchiver`).
-* A `WorkManager` job runs periodically as a best-effort background sweep.
-* The quiz document is **not deleted** — it is marked `archived = true` and a summary is copied to `archived_public_quizzes`.
-* Historical results, analytics, joined-quiz records, and cheat logs remain intact.
-* Archived quizzes are hidden from the public listing but visible to the creator and admins.
-
-Firestore rules also block new attempts on expired quizzes as an authoritative server-side guard.
+- Client-side sweep runs on every app launch
+- WorkManager periodic sweep as best-effort background job
+- Quiz document is not deleted — marked `archived = true`
+- Summary copied to `archived_public_quizzes` for analytics
+- Historical results, joined-quiz records, and cheat logs preserved
+- Archived quizzes hidden from public listing; visible to creator and admins
 
 ---
 
-# 🛠️ Tech Stack
+## 🛠️ Tech Stack
 
 | Component | Technology |
 |-----------|------------|
@@ -321,779 +286,604 @@ Firestore rules also block new attempts on expired quizzes as an authoritative s
 | UI | XML + Material Design 3 |
 | View Binding | Android ViewBinding |
 | Backend | Firebase |
-| Authentication | Firebase Authentication |
-| Google Authentication | Google Sign-In |
-| Database | Cloud Firestore |
+| Authentication | Firebase Auth + Google Sign-In |
+| Database | Cloud Firestore (offline persistence enabled) |
 | Storage | Firebase Storage |
-| Notifications | Firebase Cloud Messaging (FCM) |
-| QR Code | ZXing |
+| Notifications | Firebase Cloud Messaging |
+| QR Codes | ZXing + JourneyApps barcode scanner |
 | Charts | MPAndroidChart |
 | Image Loading | Glide |
-| Video / Audio | AndroidX Media3 / ExoPlayer |
+| Video / Audio | Android VideoView / MediaPlayer |
 | PDF Export | Android PdfDocument |
-| CSV Export | Manual CSV Generation |
-| Background Work | AndroidX WorkManager |
+| CSV Export | Manual CSV generation |
+| Excel | Apache POI for Android |
+| Background Work | WorkManager |
 | Build System | Gradle Kotlin DSL |
 | Min SDK | 24 (Android 7.0) |
 | Target SDK | 34 |
+| JDK | 17 |
 
 ---
 
-# 🚀 Getting Started
+## 🚀 Getting Started
 
-## Prerequisites
+### Prerequisites
 
-* **Android Studio** Jellyfish (2023.3.1) or later
-* **Android SDK API 34**
-* Android SDK Platform-Tools
-* Android Emulator or Android device
-* A Firebase project
+- Android Studio Hedgehog (2023.1.1) or newer
+- Android SDK API 34
+- JDK 17
+- Firebase project (Spark plan is sufficient for development)
 
-A Firebase Spark plan can be used for development.
-
----
-
-## 1. Clone the Repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/pandyaomsanjay/smartquiz
 cd smartquiz
 ```
 
----
+### 2. Open in Android Studio
 
-## 2. Open the Project in Android Studio
+1. File → Open
+2. Select the project folder
+3. Wait for Gradle sync
+4. Install missing SDK components if prompted
 
-1. Open **Android Studio**.
-2. Select **Open**.
-3. Select the Smart Quiz project folder.
-4. Wait for Gradle synchronization to complete.
-5. If Android Studio asks to install missing SDK components, install them.
+### 3. Create a Firebase project
 
----
+1. Open [Firebase Console](https://console.firebase.google.com/)
+2. Create a new project
+3. Add Android app with package name `com.smartquiz`
+4. Download `google-services.json`
 
-# 🔥 Firebase Configuration
+### 4. Add Firebase config
 
-Smart Quiz uses Firebase for authentication, database, storage, and notifications.
+Place `google-services.json` at:
 
-The application requires:
-
-* Firebase Authentication
-* Cloud Firestore
-* Firebase Storage
-* Firebase Cloud Messaging
-* Google Sign-In
-
----
-
-## 3. Create a Firebase Project
-
-Open the **Firebase Console**:
-
-https://console.firebase.google.com/
-
-1. Create a new Firebase project.
-2. Open the project.
-3. Click **Add App**.
-4. Select **Android**.
-
----
-
-## 4. Register the Android Application
-
-Use the following package name:
-
-```text
-com.smartquiz
 ```
-
-Register the application.
-
-Download `google-services.json` and place it inside:
-
-```text
 app/google-services.json
 ```
 
-> Do **not** commit your real `google-services.json` to a public repository.
+> **Important:** Never commit `google-services.json` to a public repository. Ensure it is listed in `.gitignore`.
 
----
+### 5. Enable Firebase services
 
-# 🔐 Firebase Authentication
+In Firebase Console:
 
-Go to **Firebase Console → Authentication → Sign-in method**.
+- **Authentication → Sign-in method** — enable Email/Password and Google
+- **Firestore Database** — create database in production mode
+- **Storage** — configure bucket
+- **Cloud Messaging** — enabled by default
 
-Enable:
+### 6. Configure Google Sign-In SHA-1
 
-### Email/Password
-
-Enable the **Email/Password** provider.
-
-### Google Sign-In
-
-Enable the **Google** provider.
-
-Select the appropriate support email and save the configuration.
-
----
-
-# 🔑 Google Sign-In SHA-1
-
-Configure the SHA-1 fingerprint for your Android application.
-
-From the Android project terminal, run:
-
-### Windows
-
-```powershell
-.\gradlew signingReport
+```bash
+./gradlew signingReport
 ```
 
-Find the debug variant and copy the **SHA1** value.
+Copy the `SHA1` value for the debug variant. Then:
 
-Then go to **Firebase Console → Project Settings → Your Android App** and add the SHA-1 fingerprint.
+**Firebase Console → Project Settings → Your Android App → Add fingerprint**
 
-Download the updated `google-services.json` and replace `app/google-services.json`.
+Download the updated `google-services.json` and replace the existing one.
 
----
+### 7. Set the OAuth Web Client ID
 
-# 🗄️ Cloud Firestore
+Edit `res/values/strings.xml`:
 
-Go to **Firebase Console → Firestore Database** and create a Firestore database.
+```xml
+<string name="default_web_client_id">YOUR_ACTUAL_WEB_CLIENT_ID</string>
+```
 
-For initial development, you may use test mode, but configure proper security rules before deploying the application.
+Find the value in **Firebase Console → Authentication → Sign-in method → Google → Web SDK configuration**.
 
-### Recommended Composite Indexes
+> Google Sign-In will fail with `DEVELOPER_ERROR` until this is set to a valid client ID.
 
-Create the following indexes when prompted by Logcat errors:
+### 8. Deploy Firestore rules
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+> Review the [Security Notes](#-security-notes) section before deploying. The rules in this repository require hardening for production.
+
+### 9. Create Firestore indexes
+
+Required composite indexes (create in Firebase Console → Firestore → Indexes):
 
 | Collection | Fields |
 |------------|--------|
 | `quizzes` | `visibility ASC, status ASC, archived ASC` |
+| `quizzes` | `visibility ASC, archived ASC, deadline ASC` |
+| `users/{uid}/joinedQuizzes` | `joinTime DESC` |
 | `quizzes/{id}/attempts` | `submitTime DESC` |
-| `quizzes/{id}/cheat_logs` | `timestamp DESC` |
-| `users/{id}/joinedQuizzes` | `joinTime DESC` |
 
-### Optional: Server Time Document
+Collection group index:
 
-For client-side lifecycle calculation, create a Firestore document:
+| Collection Group | Fields |
+|------------------|--------|
+| `cheat_logs` | `creatorId ASC, timestamp DESC` |
 
-```
-system/serverTime  {  now: <number>  }
-```
+### 10. Configure server time (recommended)
 
-This is used to compare against quiz deadlines without relying on the device clock.
-
----
-
-# 📦 Firebase Storage
-
-Go to **Firebase Console → Storage** and configure Firebase Storage.
-
-Storage is used for application media such as:
-
-* Profile avatars
-* Quiz images
-* Audio
-* Video
-
-Configure appropriate Storage security rules before production deployment.
-
----
-
-# 🔔 Firebase Cloud Messaging
-
-Go to **Firebase Console → Project Settings → Cloud Messaging** and make sure Firebase Cloud Messaging is enabled.
-
----
-
-# 🔐 Firestore Security Rules
-
-Go to **Firebase Console → Firestore Database → Rules** and paste:
+Deploy a Cloud Function or scheduled script:
 
 ```javascript
-rules_version = '2';
-
-service cloud.firestore {
-
-  function isAdmin() {
-    return request.auth != null &&
-      get(/databases/$(database)/documents/users/$(request.auth.uid))
-        .data.role in ["admin", "super_admin"];
-  }
-
-  match /databases/{database}/documents {
-
-    // ===============================================================
-    // USERS
-    // ===============================================================
-    match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null &&
-        (request.auth.uid == userId || isAdmin());
-
-      match /joinedQuizzes/{quizId} {
-        allow read, write: if request.auth != null &&
-          request.auth.uid == userId;
-      }
-    }
-
-    // ===============================================================
-    // QUIZZES
-    // ===============================================================
-    match /quizzes/{quizId} {
-
-      // Any authenticated user can read quizzes that are:
-      //   • public, or
-      //   • have a non-empty quizCode, or
-      //   • owned by the caller, or
-      //   • admin
-      // (Archived quizzes are hidden from public listing by the client.)
-      allow read: if request.auth != null && (
-        resource.data.visibility == "public" ||
-        (resource.data.quizCode is string && resource.data.quizCode != "") ||
-        resource.data.creatorId == request.auth.uid ||
-        isAdmin()
-      );
-
-      allow create: if request.auth != null;
-
-      allow update: if request.auth != null && (
-        request.auth.uid == resource.data.creatorId ||
-        isAdmin() ||
-        (
-          // Any authenticated user may archive an expired quiz
-          request.resource.data.archived == true &&
-          resource.data.archived == false &&
-          resource.data.deadline + (24 * 60 * 60 * 1000) <= request.time.toMillis()
-        )
-      );
-
-      allow delete: if request.auth != null && (
-        request.auth.uid == resource.data.creatorId || isAdmin()
-      );
-
-      // ---------- PUBLIC QUESTIONS ----------
-      match /questions/{questionId} {
-        allow read: if request.auth != null;
-        allow write: if request.auth != null && (
-          request.auth.uid ==
-            get(/databases/$(database)/documents/quizzes/$(quizId))
-              .data.creatorId ||
-          isAdmin()
-        );
-      }
-
-      // ---------- PRIVATE QUESTIONS ----------
-      match /questions_private/{questionId} {
-        allow read, write: if request.auth != null && (
-          request.auth.uid ==
-            get(/databases/$(database)/documents/quizzes/$(quizId))
-              .data.creatorId ||
-          isAdmin()
-        );
-      }
-
-      // ---------- ATTEMPTS ----------
-      match /attempts/{userId} {
-
-        allow read: if request.auth != null && (
-          request.auth.uid == userId ||
-          request.auth.uid ==
-            get(/databases/$(database)/documents/quizzes/$(quizId))
-              .data.creatorId ||
-          isAdmin() ||
-          get(/databases/$(database)/documents/quizzes/$(quizId))
-            .data.status == "PUBLISHED"
-        );
-
-        allow create, update: if request.auth != null &&
-          request.auth.uid == userId;
-
-        allow delete: if false;
-      }
-
-      // ---------- CHEAT LOGS ----------
-      match /cheat_logs/{logId} {
-        allow write: if request.auth != null;
-        allow read: if request.auth != null && (
-          isAdmin() ||
-          resource.data.creatorId == request.auth.uid ||
-          (
-            resource.data.quizId is string &&
-            resource.data.quizId != "" &&
-            exists(
-              /databases/$(database)/documents/quizzes/$(resource.data.quizId)
-            ) &&
-            get(
-              /databases/$(database)/documents/quizzes/$(resource.data.quizId)
-            ).data.creatorId == request.auth.uid
-          )
-        );
-      }
-    }
-
-    // ===============================================================
-    // ARCHIVED PUBLIC QUIZZES
-    // ===============================================================
-    match /archived_public_quizzes/{quizId} {
-      allow read: if request.auth != null &&
-        (isAdmin() || resource.data.creatorId == request.auth.uid);
-      allow write: if request.auth != null;
-    }
-
-    // ===============================================================
-    // SYSTEM (server time)
-    // ===============================================================
-    match /system/{docId} {
-      allow read: if request.auth != null;
-      allow write: if false;
-    }
-
-    // ===============================================================
-    // GLOBAL RESULTS
-    // ===============================================================
-    match /results/{resultId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null &&
-        request.auth.uid == resource.data.userId;
-    }
-
-    // ===============================================================
-    // LEGACY
-    // ===============================================================
-    match /quiz_attempts/{attemptId} {
-      allow read, write: if request.auth != null &&
-        (request.auth.uid == resource.data.userId || isAdmin());
-    }
-
-    match /activeAttempts/{attemptId} {
-      allow read, write: if request.auth != null;
-    }
-
-    // ===============================================================
-    // BOOKMARKS
-    // ===============================================================
-    match /bookmarks/{bookmarkId} {
-      allow read, write: if request.auth != null &&
-        (request.auth.uid == resource.data.userId || isAdmin());
-    }
-
-    // ===============================================================
-    // FEEDBACK
-    // ===============================================================
-    match /feedback/{feedbackId} {
-      allow read, write: if request.auth != null;
-    }
-
-    // ===============================================================
-    // ANNOUNCEMENTS
-    // ===============================================================
-    match /announcements/{announceId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && isAdmin();
-    }
-  }
-}
+exports.updateServerTime = functions.pubsub
+  .schedule('every 1 minutes')
+  .onRun(async () => {
+    await admin.firestore().doc('system/serverTime').set({
+      now: Date.now()
+    });
+  });
 ```
 
-> **Security Note:** Review and test these rules against the exact Firestore queries used by the application before production deployment.
+Without this, `QuizTimeUtils.getServerTimeMs()` falls back to device time.
 
----
+### 11. Bootstrap the first admin
 
-# 📦 Key Dependencies
+In Firebase Console → Firestore:
 
-```gradle
-// Firebase
-implementation("com.google.firebase:firebase-firestore-ktx")
-implementation("com.google.firebase:firebase-auth-ktx")
-implementation("com.google.firebase:firebase-storage-ktx")
-implementation("com.google.firebase:firebase-messaging-ktx")
+1. Create collection `admins`
+2. Document ID: `<admin-firebase-uid>`
+3. Fields: `{ email: "admin@example.com", createdAt: <timestamp> }`
+4. Also set `users/{uid}.role = "admin"` for UI consistency
 
-// Google Sign-In
-implementation("com.google.android.gms:play-services-auth:20.7.0")
-
-// QR Code
-implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-implementation("com.google.zxing:core:3.5.3")
-
-// Charts
-implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
-
-// Image Loading
-implementation("com.github.bumptech.glide:glide:4.16.0")
-annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
-
-// Media
-implementation("androidx.media3:media3-exoplayer:1.2.0")
-
-// Background Work
-implementation("androidx.work:work-runtime-ktx:2.9.0")
-```
-
-> Complete dependency configuration is available in `app/build.gradle.kts`.
-
----
-
-# ▶️ Build and Run
-
-After configuring Firebase:
-
-1. Open the project in Android Studio.
-2. Wait for Gradle Sync.
-3. Connect an Android device or start an emulator.
-4. Enable USB debugging if using a physical device.
-5. Click **Run ▶**.
-
-Alternatively:
+### 12. Build and run
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-On Windows PowerShell:
-
-```powershell
-.\gradlew assembleDebug
-```
-
-Install the debug APK on a connected device:
-
-```powershell
-.\gradlew installDebug
-```
+Or in Android Studio: Run → Run 'app'
 
 ---
 
-# 📁 Project Structure
+## 📖 Tutorial Page
 
-```text
-SmartQuiz/
-│
-├── app/
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/
-│   │   │   │   └── com/
-│   │   │   │       └── smartquiz/
-│   │   │   │           ├── activities/
-│   │   │   │           │   ├── MainActivity.kt
-│   │   │   │           │   ├── LoginActivity.kt
-│   │   │   │           │   ├── SignupActivity.kt
-│   │   │   │           │   ├── ProfileSetupActivity.kt
-│   │   │   │           │   ├── HomeDashboardActivity.kt
-│   │   │   │           │   ├── UserProfileActivity.kt
-│   │   │   │           │   ├── SettingsActivity.kt
-│   │   │   │           │   ├── TutorialActivity.kt
-│   │   │   │           │   ├── QuizCreationActivity.kt
-│   │   │   │           │   ├── DraftQuizzesActivity.kt
-│   │   │   │           │   ├── JoinQuizActivity.kt
-│   │   │   │           │   ├── QuizInstructionsActivity.kt
-│   │   │   │           │   ├── QuizAttemptActivity.kt
-│   │   │   │           │   ├── ResultActivity.kt
-│   │   │   │           │   ├── QuizDetailsActivity.kt
-│   │   │   │           │   ├── QuizStatsActivity.kt
-│   │   │   │           │   ├── CreatorAnalyticsActivity.kt
-│   │   │   │           │   ├── QuizLeaderboardActivity.kt
-│   │   │   │           │   ├── LeaderboardActivity.kt
-│   │   │   │           │   ├── FeedbackActivity.kt
-│   │   │   │           │   ├── SubmissionSuccessActivity.kt
-│   │   │   │           │   ├── AdminPanelActivity.kt
-│   │   │   │           │   ├── AdminQuizzesActivity.kt
-│   │   │   │           │   ├── AdminAnalyticsActivity.kt
-│   │   │   │           │   ├── AdminAnnouncementsActivity.kt
-│   │   │   │           │   └── AdminCheatLogsActivity.kt
-│   │   │   │           ├── adapters/
-│   │   │   │           │   ├── QuizAdapter.kt
-│   │   │   │           │   ├── PublicQuizAdapter.kt
-│   │   │   │           │   ├── QuestionPreviewAdapter.kt
-│   │   │   │           │   ├── QuestionGridAdapter.kt
-│   │   │   │           │   ├── DraftQuizAdapter.kt
-│   │   │   │           │   ├── JoinedQuizAdapter.kt
-│   │   │   │           │   ├── LeaderboardAdapter.kt
-│   │   │   │           │   ├── LeaderboardQuizAdapter.kt
-│   │   │   │           │   ├── ParticipantStatsAdapter.kt
-│   │   │   │           │   ├── CheatLogAdapter.kt
-│   │   │   │           │   ├── ScenarioSubQuestionAdapter.kt
-│   │   │   │           │   └── TutorialSectionAdapter.kt
-│   │   │   │           ├── models/
-│   │   │   │           │   ├── Quiz.kt
-│   │   │   │           │   ├── Question.kt
-│   │   │   │           │   ├── User.kt
-│   │   │   │           │   ├── CheatLog.kt
-│   │   │   │           │   ├── QuestionState.kt
-│   │   │   │           │   ├── QuizAttempt.kt
-│   │   │   │           │   ├── QuizResult.kt
-│   │   │   │           │   ├── LeaderboardEntry.kt
-│   │   │   │           │   ├── LeaderboardQuizItem.kt
-│   │   │   │           │   ├── JoinedQuiz.kt
-│   │   │   │           │   ├── TutorialSection.kt
-│   │   │   │           │   └── QuizLifecycleStatus.kt
-│   │   │   │           ├── services/
-│   │   │   │           │   └── MyFirebaseMessagingService.kt
-│   │   │   │           └── utils/
-│   │   │   │               ├── CheatLogger.kt
-│   │   │   │               ├── TimerManager.kt
-│   │   │   │               ├── DescriptiveAnswerMatcher.kt
-│   │   │   │               ├── QuizTimeUtils.kt
-│   │   │   │               ├── ExpiredQuizArchiver.kt
-│   │   │   │               ├── ArchiveSweepWorker.kt
-│   │   │   │               └── QuizApplication.kt
-│   │   │   │
-│   │   │   ├── res/
-│   │   │   │   ├── drawable/
-│   │   │   │   ├── layout/
-│   │   │   │   ├── values/
-│   │   │   │   ├── anim/
-│   │   │   │   └── xml/
-│   │   │   │
-│   │   │   └── AndroidManifest.xml
-│   │   │
-│   │   ├── test/
-│   │   └── androidTest/
-│   │
-│   ├── build.gradle.kts
-│   └── google-services.json
-│
-├── build.gradle.kts
-├── settings.gradle.kts
-├── gradle.properties
-├── gradlew
-├── gradlew.bat
-├── screenshots/
-│   ├── splash.png
-│   ├── login.png
-│   ├── home.png
-│   ├── public.png
-│   ├── create.png
-│   ├── scenario.png
-│   ├── attempt.png
-│   ├── result.png
-│   ├── analytics.png
-│   ├── leaderboard.png
-│   ├── cheat_logs.png
-│   └── admin.png
-│
-├── .gitignore
-├── LICENSE
-└── README.md
-```
+The in-app tutorial is a comprehensive offline help center with 42 sections covering every feature of the application.
+
+**Features:**
+- Instant search across titles, descriptions, and bullet-point content
+- Category filter chips: Getting Started, Taking Quizzes, Results, Creating Quizzes, Troubleshooting
+- Expandable accordion cards with smooth chevron rotation
+- Persistent expansion state across filtering and scrolling
+- Empty-state handling with a one-tap "Clear Search" button
+- Fully offline — content is stored in Kotlin source, no network dependency
+
+**Access:** Settings → Tutorial
 
 ---
 
-# 🗄️ Firestore Schema
+## 🗄️ Firestore Schema
 
 | Collection / Document | Purpose |
 |-----------------------|---------|
-| `users/{userId}` | User profile: name, email, role, avatar, ban status |
-| `users/{userId}/joinedQuizzes/{quizId}` | User's joined-quiz history |
-| `quizzes/{quizId}` | Quiz metadata: title, timer, visibility, lifecycle, participant count, `archived`, `startTime`, `configuredQuestionCount` |
-| `quizzes/{quizId}/questions/{qId}` | Public questions (with nested `subQuestions` for scenarios) |
-| `quizzes/{quizId}/questions_private/{qId}` | Correct answers (`subAnswers` map for scenarios) |
-| `quizzes/{quizId}/attempts/{userId}` | User's attempt: answers, score, status, timer state, `questionOrder`, `optionOrder` |
-| `quizzes/{quizId}/cheat_logs/{logId}` | Anti-cheat events per quiz |
-| `results/{resultId}` | Global results for analytics |
-| `feedback/{feedbackId}` | Quiz ratings and comments |
+| `users/{uid}` | Profile: name, email, role, avatar, ban/block status, fcmToken, streak |
+| `users/{uid}/joinedQuizzes/{quizId}` | User's quiz history |
+| `admins/{uid}` | Admin allowlist (source of truth for admin checks in rules) |
+| `quizzes/{quizId}` | Quiz metadata: title, timer, visibility, lifecycle, participantCount, archived |
+| `quizzes/{quizId}/questions/{qId}` | Public question data (no answers) |
+| `quizzes/{quizId}/questions_private/{qId}` | Correct answers (creator + admin only) |
+| `quizzes/{quizId}/attempts/{uid}` | User attempt: answers, states, timer, score |
+| `quizzes/{quizId}/cheat_logs/{logId}` | Anti-cheat events |
+| `results/{id}` | Global results for analytics |
+| `bookmarks/{id}` | User question bookmarks |
+| `feedback/{id}` | Quiz ratings |
 | `announcements/{id}` | Admin announcements |
-| `bookmarks/{bookmarkId}` | User question bookmarks |
-| `archived_public_quizzes/{quizId}` | Long-term summary of archived quizzes |
-| `system/serverTime` | Cached server timestamp for client-side lifecycle |
+| `archived_public_quizzes/{quizId}` | Archive summaries |
+| `system/serverTime` | Server timestamp (must be written by Cloud Function) |
 
 ---
 
-# 🧪 Testing
+## 📁 Project Structure
 
-The project supports:
+All classes currently live in the root `com.smartquiz` package.
 
-### Unit Tests
-
-```text
-app/src/test/
+```
+app/
+├── src/main/
+│   ├── java/com/smartquiz/
+│   │   ├── QuizApplication.kt
+│   │   ├── MainActivity.kt
+│   │   │
+│   │   ├── LoginActivity.kt
+│   │   ├── SignupActivity.kt
+│   │   ├── ProfileSetupActivity.kt
+│   │   ├── SetPasswordActivity.kt
+│   │   ├── ChangePasswordActivity.kt
+│   │   │
+│   │   ├── HomeDashboardActivity.kt
+│   │   ├── UserProfileActivity.kt
+│   │   ├── SettingsActivity.kt
+│   │   ├── TutorialActivity.kt
+│   │   │
+│   │   ├── QuestionMethodSelectionActivity.kt
+│   │   ├── QuizCreationActivity.kt
+│   │   ├── BulkImportActivity.kt
+│   │   ├── DraftQuizzesActivity.kt
+│   │   ├── CreatorDashboardActivity.kt
+│   │   ├── CreatorAnalyticsActivity.kt
+│   │   │
+│   │   ├── JoinQuizActivity.kt
+│   │   ├── QuizDetailsActivity.kt
+│   │   ├── QuizInstructionsActivity.kt
+│   │   ├── QuizAttemptActivity.kt
+│   │   ├── ResultActivity.kt
+│   │   ├── FeedbackActivity.kt
+│   │   │
+│   │   ├── LeaderboardActivity.kt
+│   │   ├── QuizLeaderboardActivity.kt
+│   │   ├── QuizStatsActivity.kt
+│   │   │
+│   │   ├── AdminPanelActivity.kt
+│   │   ├── AdminUsersActivity.kt
+│   │   ├── AdminQuizzesActivity.kt
+│   │   ├── AdminCheatLogsActivity.kt
+│   │   ├── AdminAnnouncementsActivity.kt
+│   │   ├── AdminAnalyticsActivity.kt
+│   │   ├── PastAnnouncementsActivity.kt
+│   │   │
+│   │   ├── MyFirebaseMessagingService.kt
+│   │   │
+│   │   ├── CheatLogger.kt
+│   │   ├── TimerManager.kt
+│   │   ├── DescriptiveAnswerMatcher.kt
+│   │   ├── QuestionFileParser.kt
+│   │   ├── QuizTimeUtils.kt
+│   │   ├── ExpiredQuizArchiver.kt
+│   │   ├── ArchiveSweepWorker.kt
+│   │   ├── AuthHelper.kt
+│   │   │
+│   │   ├── Quiz.kt
+│   │   ├── Question.kt
+│   │   ├── User.kt
+│   │   ├── CheatLog.kt
+│   │   ├── QuestionState.kt
+│   │   ├── QuizAttempt.kt
+│   │   ├── QuizResult.kt
+│   │   ├── LeaderboardEntry.kt
+│   │   ├── LeaderboardQuizItem.kt
+│   │   ├── JoinedQuiz.kt
+│   │   ├── TutorialSection.kt
+│   │   ├── QuizLifecycleStatus.kt
+│   │   │
+│   │   └── (adapters: QuizAdapter, PublicQuizAdapter, QuestionGridAdapter,
+│   │       ParticipantStatsAdapter, CheatLogAdapter, TutorialSectionAdapter,
+│   │       LeaderboardAdapter, LeaderboardQuizAdapter, DraftQuizAdapter,
+│   │       JoinedQuizAdapter, QuestionPreviewAdapter, ImportPreviewAdapter,
+│   │       AnnouncementHistoryAdapter)
+│   │
+│   ├── res/
+│   │   ├── layout/      (60+ activity, item, and dialog layouts)
+│   │   ├── drawable/    (icons, backgrounds, gradients)
+│   │   ├── anim/        (slide animations)
+│   │   ├── values/      (colors, strings, dimens, themes, arrays)
+│   │   └── xml/         (file_paths, backup rules)
+│   │
+│   └── AndroidManifest.xml
+│
+├── build.gradle.kts
+└── google-services.json    (git-ignored)
 ```
 
-### Instrumentation Tests
+---
 
-```text
-app/src/androidTest/
-```
+## 🔐 Security Notes
 
-### Firebase Emulator Suite
+### Service Account Key — Must Be Revoked
 
-Useful for local testing of Firebase services:
+An earlier version of this repository included `app/src/main/assets/service-account.json` — a Firebase service account with full administrative access to the project. The file has been removed, but the key itself must be revoked if it was ever exposed:
 
-* Authentication
-* Cloud Firestore
+1. Open [Google Cloud Console → IAM → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
+2. Locate `firebase-adminsdk-fbsvc@smartquiz-51b9d.iam.gserviceaccount.com`
+3. Delete any active keys
+4. Audit Firestore and Auth access logs
+5. Rotate the Firebase project if misuse is suspected
 
-### Manual Testing Checklist
+**Push notifications must be sent from a Cloud Function or backend service, never from the client app.**
 
-#### Authentication
-- [x] USER login → close app → reopen → Home directly
-- [x] USER login → swipe from recent apps → reopen → Home directly
-- [x] USER login → restart phone → open app → Home directly
-- [x] ADMIN login → close app → reopen → Admin Panel directly
-- [x] Explicit logout → confirmation → Login screen
-- [x] After logout, pressing Back does not return to Home
-- [x] Uninstall → reinstall → account + Firestore data intact
+### Firestore Rules Require Hardening
 
-#### Public Quizzes
-- [x] UPCOMING quiz → button "Starts Soon", disabled
-- [x] LIVE quiz → button "Join / Start", enabled
-- [x] EXPIRED quiz → button "Expired", disabled
-- [x] Join quiz → participant count +1 on Home
-- [x] Re-join same quiz → count unchanged
-- [x] Complete quiz → button becomes "View Result"
-- [x] After deadline, quiz hidden from public list
-- [x] Historical Quizzes Joined count unaffected by expiry
+The rules in this repository are functional but not production-ready. Known issues:
 
-#### Scenario Questions
-- [x] Create quiz with scenario containing 3 sub-questions → total +3
-- [x] Create multiple scenarios → total = sum of sub-questions
-- [x] Mixed scenario + normal order preserved
-- [x] Attempt shows scenario banner above each sub-question
-- [x] Progress counter counts sub-questions, not containers
-- [x] PDF numbers sub-questions sequentially
-- [x] Result calculates score correctly
+- Users can modify their own `role`, `isBanned`, `isBlocked` fields
+- Any authenticated user can rewrite expired quiz metadata
+- Any authenticated user can create announcements
+- Any authenticated user can read all cheat logs and feedback
+- Client-side score writes to `attempts` are trusted without validation
+- `participantCount` can be set to arbitrary values (not just +1)
+- `results` and `bookmarks` writes fail silently on first write
 
-#### Descriptive Answer Matching
-- [x] `123456` ≡ `123 456` → Correct
-- [x] `123 456` ≡ `123456` → Correct
-- [x] `hello    world` ≡ `hello world` → Correct
-- [x] `Hello World` ≡ `hello world` → Correct
-- [x] `  Hello World` ≡ `Hello World` → Correct
-- [x] `123` vs `124` → Wrong
-- [x] `Java` vs `JavaScript` → Wrong
-- [x] `1000` ≡ `1,000` → Correct
-- [x] `10.50` ≡ `10.5` → Correct
-- [x] `ABC 123` ≡ `ABC123` → Correct
-- [x] `TCP` vs `UDP` → Wrong
-- [x] Empty answer → Wrong
-- [x] Original answer preserved in UI and PDF
+Production hardening should:
 
-#### Attempt & Anti-Cheat
-- [x] Timer runs, auto-submits on expiry
-- [x] Per-question timer locks question on expiry
-- [x] Autosave preserves answers on app kill
-- [x] Resume restores answers, states, timer, current index
-- [x] BACK_BUTTON / HOME_OR_RECENTS / APP_BACKGROUND / FOCUS_LOST detected
-- [x] 3 warnings → auto-submit
-- [x] FLAG_SECURE blocks screenshots
+1. Add a field whitelist to `users/{uid}` writes
+2. Restrict the archive update rule to `hasOnly(['archived', 'archivedAt', 'status'])`
+3. Require `isAdmin()` for announcement creation
+4. Scope cheat log and feedback reads to `creatorId == auth.uid || isAdmin()`
+5. Use `request.resource.data.userId` (not `resource.data.userId`) on create rules
+6. Restrict `participantCount` increments to `+1`
+7. Move final score writes to a Cloud Function
 
-#### Drafts & Publishing
-- [x] Save as draft → scenario data preserved
-- [x] Edit draft → scenario editable
-- [x] Publish validates configured count vs actual
-- [x] Under/over count shows exact error message
+### Other Recommendations
+
+- Never use Firestore test mode in production
+- Configure Firebase Storage security rules
+- Do not commit `google-services.json` or any credential file
+- Verify that correct answers (`questions_private`) are never exposed to non-creators
+- Protect the `system/serverTime` document with write access restricted to Cloud Functions
+- Test anti-cheating functionality across Android versions
+- Review admin permission boundaries
 
 ---
 
-# 🔒 Security Recommendations
+## 🧪 Testing
 
-Before publishing the application:
+### Automated Tests
 
-* Do not use Firestore test mode in production.
-* Configure proper Firestore security rules.
-* Configure Firebase Storage security rules.
-* Protect sensitive configuration files (`google-services.json`).
-* Review authentication settings.
-* Test admin permissions carefully.
-* Verify quiz access permissions.
-* Verify that correct answers are not exposed to regular users.
-* Test anti-cheating functionality on supported Android versions.
-* Ensure the `system/serverTime` document is write-protected (client read-only).
+Unit and instrumentation test directories exist but are currently empty. Adding coverage for `QuestionFileParser`, `DescriptiveAnswerMatcher`, `TimerManager`, and Firestore rules is a high-priority follow-up.
+
+### Manual Test Checklist
+
+**Authentication**
+- Login → close app → reopen → Home
+- Login → swipe away → reopen → Home
+- Login → reboot → open app → Home
+- Admin login → Admin Panel
+- Explicit logout → confirmation → Login screen
+- After logout, back button does not return to Home
+
+**Public Quizzes**
+- UPCOMING quiz → "Starts Soon" button, disabled
+- LIVE quiz → "Join / Start" button, enabled
+- EXPIRED quiz → "Expired" button, disabled
+- Join quiz → participant count +1
+- Re-join same quiz → count unchanged
+- Complete quiz → "View Result" button
+
+**Scenario Questions**
+- Create scenario with 3 sub-questions → total +3
+- Multiple scenarios sum correctly
+- Mixed scenario and normal question order preserved
+- Scenario banner shown above each sub-question
+- Progress counter counts sub-questions
+- PDF numbers sub-questions sequentially
+- Score computed correctly
+
+**Descriptive Answer Matching**
+- All cases in the comparison table above
+
+**Attempt & Anti-Cheat**
+- Timer auto-submits on expiry
+- Per-question timer locks question
+- Autosave preserves answers on app kill
+- Resume restores answers, states, timer, current index
+- All cheat events detected
+- 3 warnings → auto-submit
+- FLAG_SECURE blocks screenshots
+
+**Tutorial**
+- Search finds relevant sections
+- Category chips filter correctly
+- Accordion expands/collapses without duplicating content
+- Expansion persists across scroll and filter changes
+- Works offline
+
+**Drafts & Publishing**
+- Save as draft → scenario preserved
+- Edit draft → scenario editable
+- Publish validates count
+- Under/over count shows error message
 
 ---
 
-# 📝 Changelog
+## ⚠️ Known Issues
+
+### Security (Blocking Release)
+1. Service account key was previously in the APK — must be revoked
+2. Firestore rules allow users to unban/unblock themselves
+3. Firestore rules allow any user to rewrite expired quizzes
+4. Firestore rules allow any user to create announcements
+5. Firestore rules allow any user to read all cheat logs
+6. Client-side score writes to `attempts` are not validated
+7. `participantCount` can be set to any value (not just +1)
+8. `default_web_client_id` is a placeholder — Google Sign-In broken
+
+### Functionality (Silent Data Loss)
+9. `results` writes fail silently — `resource.data.userId` on create
+10. `bookmarks` writes fail silently — same issue
+11. `AdminAnalyticsActivity` shows 0 attempts as a consequence
+
+### Stability
+12. `Tasks.await()` on main thread in `QuizCreationActivity.isTitleDuplicate()` (ANR risk)
+13. `restoreAttemptFromFirestore()` race — `startQuiz()` runs before restore completes
+14. Timer restore exploit — missing saved state gives fresh full timer
+15. `QuizStatsActivity` listener never re-attached after `onStop()`
+
+### Data Integrity
+16. Subcollections orphaned on quiz delete (no cascade)
+17. Attempt `status` always "Completed" — creator can't distinguish auto-submits
+18. `allowMultipleAttempts` field is saved but never read
+
+### UI
+19. RecyclerView `match_parent` height in vertical LinearLayouts (3 screens clipped)
+20. Loading spinners rendered off-screen on 3 screens
+21. Two conflicting progress counters in `QuizAttemptActivity`
+22. `setBackgroundColor` destroys chip drawables in 4 places
+23. Hardcoded rank `#1` on Home Dashboard
+24. Dead code: `SubmissionSuccessActivity`, `dialog_import_preview.xml`, `item_quiz.xml`
+
+### Theming
+25. No `values-night/colors.xml` — dark mode appearance inconsistent
+26. Hardcoded colors in `themes.xml` instead of `@color/` references
+27. Splash screen not using `core-splashscreen` API (Android 12+)
+
+---
+
+## 📋 Roadmap
+
+### Blocking Release
+- Revoke leaked service account, ensure it never returns
+- Move FCM sending to Cloud Function
+- Harden Firestore rules (see Security Notes)
+- Fix `results` and `bookmarks` write rules
+- Set `default_web_client_id` to a real OAuth client ID
+- Server-side score validation via Cloud Function
+- Quiz code uniqueness enforcement
+
+### High Priority
+- Move `Tasks.await()` off main thread
+- Fix `restoreAttemptFromFirestore()` race condition
+- Fix timer restore exploit
+- Fix `QuizStatsActivity` listener lifecycle
+- Chain subcollection deletion before parent delete
+- Show correct attempt status in `QuizStatsActivity`
+- Add `values-night/colors.xml` for dark mode
+- Replace `setBackgroundColor` with `backgroundTintList`
+- Fix `match_parent` RecyclerView heights
+- Move loading spinners to visible positions
+
+### Medium Priority
+- Add unit tests for `QuestionFileParser`, `DescriptiveAnswerMatcher`, `TimerManager`
+- Add Firestore rules tests
+- Paginate admin user and quiz lists
+- CSV parser support for quoted multi-line fields
+- Add content descriptions for TalkBack
+- Migrate to Media3 for audio/video
+- Migrate to SplashScreen API (Android 12+)
+- Replace `onBackPressed()` with `onBackPressedDispatcher`
+- Remove dead code files
+- Unify color system (remove duplicate semantic names)
+
+### Nice to Have
+- Localization
+- Landscape layouts
+- Tablet and foldable optimization
+- Jetpack Compose migration (long-term)
+- Offline queue for attempts
+- Accessibility audit
+
+---
+
+## 📝 Changelog
+
+### v1.6.0 — Tutorial Redesign & Security Audit
+- **Tutorial Page redesign:**
+  - Compact welcome card
+  - Search across titles, descriptions, and bullet points
+  - Category filter chips: All, Getting Started, Taking Quizzes, Results, Creating Quizzes, Troubleshooting
+  - Expandable accordion cards with chevron rotation
+  - Persistent expansion state across filtering and scrolling
+  - Empty-state handling with one-tap Clear Search
+  - `ListAdapter` + `DiffUtil` for efficient updates
+- **Security audit:**
+  - Documented leaked service account key
+  - Identified 11 Firestore rules vulnerabilities
+  - Flagged `results` and `bookmarks` silent write failures
+  - Added SECURITY.md with hardened rule recommendations
+- **Stability:**
+  - Flagged `Tasks.await()` ANR in `QuizCreationActivity`
+  - Flagged `restoreAttemptFromFirestore()` race condition
+  - Flagged timer restore exploit
+  - Flagged `QuizStatsActivity` listener lifecycle bug
 
 ### v1.5.0 — Descriptive Answer Improvements
-- Added `DescriptiveAnswerMatcher` — centralized normalization + comparison
-- Multi-line descriptive input with improved spacing/padding
+- Centralized `DescriptiveAnswerMatcher`
+- Multi-line descriptive input with improved spacing
 - Numeric formatting equivalence (`1,000` ≡ `1000`)
 - Decimal equivalence (`10.50` ≡ `10.5`)
 - Alphanumeric formatting equivalence (`ABC 123` ≡ `ABC123`)
-- Student's original answer preserved (no trimming on save)
+- Original answers preserved (no trim on save)
 
 ### v1.4.0 — Scenario-Based Questions
-- New "Scenario" question type as a container for sub-questions
-- Scenario editor with add/edit/remove sub-questions
-- Flat navigation — sub-questions shown individually with scenario banner
+- New Scenario question type with sub-questions
+- Scenario editor with add/edit/remove
+- Flat navigation with scenario context banner
 - Scenario-aware scoring, PDFs, analytics, and stats
-- Firestore schema supports nested `subQuestions` and `subAnswers`
 
 ### v1.3.0 — Persistent Login & Session Fix
-- Removed `Creator` role — only `USER` and `ADMIN`
+- Removed Creator role — only USER and ADMIN
 - Role-aware routing on startup
-- Explicit logout with confirmation dialog + `FLAG_ACTIVITY_CLEAR_TASK`
-- No `signOut()` calls outside explicit user action
+- Explicit logout with confirmation and `FLAG_ACTIVITY_CLEAR_TASK`
 
 ### v1.2.0 — Real-Time Quizzes Joined Count
-- Replaced static count with Firestore snapshot listener
-- Counts unique joined quizzes (doc ID = quizId)
-- Includes public, private, 6-digit, and QR joins
+- Firestore snapshot listener for joined quizzes
+- Unique joined quiz counting (doc ID = quizId)
 - Historical count preserved across quiz expiry
 
 ### v1.1.0 — Public Quiz Management & Auto-Expiry
 - Public quiz listing with full metadata
-- Lifecycle status: UPCOMING / LIVE / COMPLETED / EXPIRED / DELETED
-- 24-hour auto-archive via client sweep + WorkManager
-- Participant count via atomic Firestore transaction
+- Lifecycle statuses: UPCOMING, LIVE, COMPLETED, EXPIRED, DELETED
+- 24-hour auto-archive via client sweep and WorkManager
+- Atomic participant count via Firestore transaction
 - Dynamic join button states
 
 ### v1.0.0 — Initial Release
-- Email/Password + Google authentication
+- Email/Password and Google authentication
 - Quiz creation with Radio, Checkbox, Descriptive
-- Public and private quizzes with 6-digit join codes
+- Public and private quizzes with 6-digit codes
 - QR code scanning
-- Timer, anti-cheat, bookmarks, mark for review
-- Leaderboard, analytics, PDF/CSV export
+- Timers, anti-cheat, bookmarks, mark for review
+- Leaderboards, analytics, PDF/CSV export
 - Admin panel with user and quiz management
 
 ---
 
-# 🤝 Contributing
+## 🤝 Contributing
 
-Contributions are welcome.
-
-1. Fork the repository.
-2. Create a feature branch:
+1. Fork the repository
+2. Create a feature branch
    ```bash
    git checkout -b feature/amazing-feature
    ```
-3. Make your changes.
-4. Commit your changes:
+3. Make your changes
+4. Add tests where applicable
+5. Commit with a descriptive message
    ```bash
-   git commit -m "Add amazing feature"
+   git commit -m "feat: add amazing feature"
    ```
-5. Push the branch:
-   ```bash
-   git push origin feature/amazing-feature
-   ```
-6. Open a Pull Request.
+6. Push and open a Pull Request
+
+**Important:** Do not introduce new client-side admin checks. Never commit credentials, `google-services.json`, or service account files. Read [Security Notes](#-security-notes) before contributing.
 
 ---
 
-# 📄 License
+## 📄 License
 
-This project is licensed under the **MIT License**.
-
-See the `LICENSE` file for more information.
+This project is licensed under the **MIT License**. See the [LICENSE](./LICENSE) file for details.
 
 ---
 
-# 🙏 Acknowledgements
+## 🙏 Acknowledgements
 
-This project uses and/or is inspired by the following technologies:
+Smart Quiz is built on the following open-source technologies:
 
-* **Firebase** – Backend infrastructure
-* **ZXing** – QR code generation and scanning
-* **MPAndroidChart** – Charts and analytics
-* **Glide** – Image loading
-* **AndroidX Media3 / ExoPlayer** – Audio and video playback
-* **AndroidX WorkManager** – Background archiving sweep
-* **Material Design 3** – UI system
+- **Firebase** — Authentication, Firestore, Storage, Cloud Messaging
+- **ZXing** — QR code generation and scanning
+- **MPAndroidChart** — Analytics charts
+- **Glide** — Image loading
+- **AndroidX WorkManager** — Background archiving
+- **Material Design 3** — UI system
+- **Apache POI** — Excel import/export
 
 ---
 
-## ❤️ Smart Quiz
+<div align="center">
 
-**Built with ❤️ by the Smart Quiz Team.**
+**Built with ❤️ by the Smart Quiz Team**
+
+[⬆ Back to Top](#-smart-quiz--android-app)
+
+</div>
+```
+
+---
+
+I've generated a clean, self-contained `README.md` that presents the project as it currently stands. It:
+
+- **References the content from your old README** (features, tech stack, Firestore schema, folder structure) without comparing old versus new
+- **Incorporates the tutorial page** as a completed feature with its own section
+- **Consolidates the security findings** into a dedicated section rather than framing them as "changes"
+- **Presents the current status** honestly in the Pre-Release and Known Issues sections
+- **Changelog lists releases** as a version history — no "v1.6.0 changed X from the old version" framing, just what each release contains
+
+To save it: copy the content inside the code block above into `README.md` at your project root. The file name in your request was `REDMI.md` — the standard convention is `README.md`, so that's what the content is written for.
