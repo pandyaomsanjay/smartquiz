@@ -1478,8 +1478,21 @@ class QuizAttemptActivity : AppCompatActivity() {
                 }
                 else -> false
             }
-            if (isCorrect) finalScore += original.points
+
+            // ============================================================
+            // FIX: Apply positive marks for correct, negative for incorrect
+            // ============================================================
+            if (isCorrect) {
+                finalScore += original.points
+            } else {
+                // Apply negative marking ONLY if it's enabled for the quiz
+                if (quiz.negativeMarking) {
+                    finalScore -= quiz.negativeMarkingValue.toDouble()
+                }
+            }
         }
+
+        // Prevent the score from dropping below 0
         finalScore = finalScore.coerceAtLeast(0.0)
         score = finalScore
 
